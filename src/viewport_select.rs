@@ -59,12 +59,13 @@ fn handle_viewport_click(
         Res<crate::brush::EditMode>,
         Res<crate::draw_brush::DrawBrushState>,
     ),
+    terrain_edit_mode: Res<crate::terrain::TerrainEditMode>,
     mut ray_cast: MeshRayCast,
 ) {
     let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
 
     // Don't select during gizmo drag, modal ops, viewport drag, brush edit mode, draw mode,
-    // or shift+click (which starts box select)
+    // terrain sculpt mode, or shift+click (which starts box select)
     if !mouse.just_pressed(MouseButton::Left)
         || shift
         || gizmo_drag.active
@@ -72,6 +73,7 @@ fn handle_viewport_click(
         || vp_drag.active.is_some()
         || *edit_mode != crate::brush::EditMode::Object
         || draw_state.active.is_some()
+        || matches!(*terrain_edit_mode, crate::terrain::TerrainEditMode::Sculpt(_))
     {
         return;
     }

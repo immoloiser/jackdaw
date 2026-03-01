@@ -14,6 +14,7 @@ pub mod layout;
 pub mod modal_transform;
 pub mod navmesh;
 pub mod scene_io;
+pub mod terrain;
 pub mod selection;
 pub mod snapping;
 pub mod status_bar;
@@ -80,6 +81,7 @@ impl Plugin for EditorPlugin {
             face_grid::FaceGridPlugin,
             alignment_guides::AlignmentGuidesPlugin,
             navmesh::NavmeshPlugin,
+            terrain::TerrainPlugin,
         ))
         .insert_resource(UiTheme(create_dark_theme()))
         .init_resource::<layout::KeybindHelpPopover>()
@@ -196,6 +198,7 @@ fn populate_menu(world: &mut World) {
                     ("add.empty", "Empty"),
                     ("---", ""),
                     ("add.navmesh", "Navmesh Region"),
+                    ("add.terrain", "Terrain"),
                 ],
             ),
         ],
@@ -358,6 +361,9 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
         }
         "add.navmesh" => {
             navmesh::spawn_navmesh_entity(&mut commands);
+        }
+        "add.terrain" => {
+            terrain::spawn_terrain_entity(&mut commands);
         }
         _ => {}
     }

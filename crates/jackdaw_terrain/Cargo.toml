@@ -1,0 +1,12 @@
+[package]
+name = "jackdaw_terrain"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+noise.workspace = true
+rand.workspace = true
+bevy_math = { version = "0.18", default-features = false }
+
+[lints]
+workspace = true

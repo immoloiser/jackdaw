@@ -131,6 +131,7 @@ fn viewport_with_toolbar(icon_font: Handle<Font>) -> impl Bundle {
         children![
             toolbar(icon_font),
             crate::navmesh::toolbar::navmesh_toolbar(),
+            crate::terrain::toolbar::terrain_toolbar(),
             scene_view(),
         ],
     )

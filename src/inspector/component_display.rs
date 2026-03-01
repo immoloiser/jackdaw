@@ -251,6 +251,15 @@ pub(crate) fn add_component_displays(
                 continue;
             }
 
+            // Priority 3c: Terrain — custom inspector sections
+            if type_id == TypeId::of::<jackdaw_jsn::Terrain>() {
+                crate::terrain::inspector::spawn_terrain_inspector_container(
+                    &mut commands,
+                    body_entity,
+                );
+                continue;
+            }
+
             // Priority 3: Generic reflection display
             reflect_fields::spawn_reflected_fields(
                 &mut commands,

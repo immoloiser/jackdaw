@@ -302,6 +302,32 @@ pub struct NavmeshRegion {
     pub connection_url: String,
 }
 
+/// Terrain heightmap component. Stores all data needed for serialization.
+#[derive(Component, Reflect, Clone, Debug)]
+#[reflect(Component, Default)]
+pub struct Terrain {
+    /// Vertices per edge.
+    pub resolution: u32,
+    /// World-space XZ dimensions.
+    pub size: Vec2,
+    /// Maximum height value for normalization.
+    pub max_height: f32,
+    /// Row-major height data, length = resolution^2.
+    pub heights: Vec<f32>,
+}
+
+impl Default for Terrain {
+    fn default() -> Self {
+        let resolution = 256;
+        Self {
+            resolution,
+            size: Vec2::new(100.0, 100.0),
+            max_height: 50.0,
+            heights: vec![0.0; (resolution * resolution) as usize],
+        }
+    }
+}
+
 impl Default for NavmeshRegion {
     fn default() -> Self {
         Self {

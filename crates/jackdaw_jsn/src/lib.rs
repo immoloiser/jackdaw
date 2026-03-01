@@ -6,7 +6,7 @@ pub mod types;
 use bevy::prelude::*;
 
 // Re-export core types for consumer convenience
-pub use types::{Brush, BrushFaceData, BrushPlane, CustomProperties, GltfSource, NavmeshRegion, PropertyValue};
+pub use types::{Brush, BrushFaceData, BrushPlane, CustomProperties, GltfSource, NavmeshRegion, PropertyValue, Terrain};
 
 // Re-export geometry crate
 pub use jackdaw_geometry;
@@ -25,6 +25,7 @@ impl Plugin for JsnPlugin {
             .register_type::<PropertyValue>()
             .register_type::<GltfSource>()
             .register_type::<NavmeshRegion>()
+            .register_type::<Terrain>()
             .init_asset_loader::<JsnAssetLoader>()
             .add_systems(Update, mesh_rebuild::rebuild_brush_meshes);
     }

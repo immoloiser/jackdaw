@@ -16,6 +16,7 @@ jackdaw_camera.workspace = true
 jackdaw_feathers.workspace = true
 jackdaw_widgets.workspace = true
 jackdaw_commands.workspace = true
+jackdaw_terrain.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 avian3d.workspace = true
@@ -36,6 +37,9 @@ jackdaw_camera = { path = "crates/jackdaw_camera" }
 jackdaw_feathers = { path = "crates/jackdaw_feathers" }
 jackdaw_widgets = { path = "crates/jackdaw_widgets" }
 jackdaw_commands = { path = "crates/jackdaw_commands" }
+jackdaw_terrain = { path = "crates/jackdaw_terrain" }
+noise = "0.9"
+rand = "0.9"
 serde = "1"
 lucide-icons = "0.563"
 serde_json = "1"

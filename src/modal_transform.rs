@@ -461,8 +461,11 @@ fn viewport_drag_detect(
     modal: Res<ModalTransformState>,
     gizmo_hover: Res<GizmoHoverState>,
     mut drag_state: ResMut<ViewportDragState>,
-    edit_mode: Res<crate::brush::EditMode>,
-    draw_state: Res<crate::draw_brush::DrawBrushState>,
+    (edit_mode, draw_state, terrain_edit_mode): (
+        Res<crate::brush::EditMode>,
+        Res<crate::draw_brush::DrawBrushState>,
+        Res<crate::terrain::TerrainEditMode>,
+    ),
     mut ray_cast: MeshRayCast,
     parents: Query<&ChildOf>,
     brushes: Query<(), With<jackdaw_jsn::Brush>>,
@@ -473,6 +476,11 @@ fn viewport_drag_detect(
 
     // Block viewport drag during brush edit mode or draw mode
     if *edit_mode != crate::brush::EditMode::Object || draw_state.active.is_some() {
+        return;
+    }
+
+    // Block viewport drag during terrain sculpt mode
+    if matches!(*terrain_edit_mode, crate::terrain::TerrainEditMode::Sculpt(_)) {
         return;
     }
 
@@ -560,8 +568,15 @@ fn viewport_drag_update(
     mut transforms: Query<&mut Transform>,
     mut cursor_query: Query<&mut CursorOptions, With<Window>>,
     edit_mode: Res<crate::brush::EditMode>,
+    terrain_edit_mode: Res<crate::terrain::TerrainEditMode>,
 ) {
     if !mouse.pressed(MouseButton::Left) {
+        drag_state.pending = None;
+        return;
+    }
+
+    // Cancel pending drag if terrain sculpt mode became active
+    if matches!(*terrain_edit_mode, crate::terrain::TerrainEditMode::Sculpt(_)) {
         drag_state.pending = None;
         return;
     }

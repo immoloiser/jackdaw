@@ -198,6 +198,7 @@ fn handle_grid_size_keys(
     keyboard: Res<ButtonInput<KeyCode>>,
     input_focus: Res<InputFocus>,
     modal: Res<crate::modal_transform::ModalTransformState>,
+    terrain_edit_mode: Res<crate::terrain::TerrainEditMode>,
     mut scroll_events: MessageReader<MouseWheel>,
     mut snap: ResMut<SnapSettings>,
 ) {
@@ -207,11 +208,17 @@ fn handle_grid_size_keys(
 
     let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let alt = keyboard.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+
+    // Shift+Scroll is used for brush resize when terrain sculpt is active;
+    // only allow grid resize via Shift+Scroll when NOT sculpting.
+    let shift_grid = shift
+        && !matches!(*terrain_edit_mode, crate::terrain::TerrainEditMode::Sculpt(_));
 
     let mut changed = false;
 
-    // Ctrl+Alt+Scroll: change grid size
-    if ctrl && alt {
+    // Ctrl+Alt+Scroll or Shift+Scroll (non-sculpt): change grid size
+    if (ctrl && alt) || shift_grid {
         for event in scroll_events.read() {
             let delta = match event.unit {
                 MouseScrollUnit::Line => event.y,
