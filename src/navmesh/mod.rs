@@ -7,7 +7,7 @@ mod visualization;
 use bevy::prelude::*;
 use bevy_rerecast::{TriMeshFromBevyMesh as _, prelude::*, rerecast::TriMesh};
 
-use crate::EditorEntity;
+use crate::{EditorEntity, EditorMeta};
 
 pub use toolbar::NavmeshToolbar;
 pub use visualization::NavmeshVizConfig;
@@ -16,6 +16,7 @@ pub struct NavmeshPlugin;
 
 impl Plugin for NavmeshPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type_data::<jackdaw_jsn::NavmeshRegion, crate::ReflectEditorMeta>();
         app.add_plugins(
             NavmeshPlugins::default()
                 .build()
@@ -91,10 +92,18 @@ impl std::fmt::Display for NavmeshStatus {
     }
 }
 
-pub fn spawn_navmesh_entity(commands: &mut Commands) {
-    commands.spawn((
-        Name::new("Navmesh"),
-        Transform::from_scale(Vec3::splat(10.0)),
-        jackdaw_jsn::NavmeshRegion::default(),
-    ));
+impl EditorMeta for jackdaw_jsn::NavmeshRegion {
+    fn category() -> &'static str {
+        "Navmesh"
+    }
+}
+
+pub fn spawn_navmesh_entity(commands: &mut Commands) -> Entity {
+    commands
+        .spawn((
+            Name::new("Navmesh"),
+            Transform::from_scale(Vec3::splat(10.0)),
+            jackdaw_jsn::NavmeshRegion::default(),
+        ))
+        .id()
 }

@@ -29,6 +29,7 @@ pub mod viewport_select;
 pub mod viewport_util;
 
 use bevy::{
+    ecs::system::SystemState,
     feathers::{FeathersPlugins, dark_theme::create_dark_theme, theme::UiTheme},
     input::mouse::{MouseScrollUnit, MouseWheel},
     input_focus::InputDispatchPlugin,
@@ -365,10 +366,24 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
             });
         }
         "add.navmesh" => {
-            navmesh::spawn_navmesh_entity(&mut commands);
+            commands.queue(|world: &mut World| {
+                let mut system_state: SystemState<(Commands, ResMut<Selection>)> =
+                    SystemState::new(world);
+                let (mut commands, mut selection) = system_state.get_mut(world);
+                let entity = navmesh::spawn_navmesh_entity(&mut commands);
+                selection.select_single(&mut commands, entity);
+                system_state.apply(world);
+            });
         }
         "add.terrain" => {
-            terrain::spawn_terrain_entity(&mut commands);
+            commands.queue(|world: &mut World| {
+                let mut system_state: SystemState<(Commands, ResMut<Selection>)> =
+                    SystemState::new(world);
+                let (mut commands, mut selection) = system_state.get_mut(world);
+                let entity = terrain::spawn_terrain_entity(&mut commands);
+                selection.select_single(&mut commands, entity);
+                system_state.apply(world);
+            });
         }
         _ => {}
     }

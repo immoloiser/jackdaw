@@ -7,12 +7,15 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 
+use crate::EditorMeta;
+
 pub use toolbar::TerrainToolbar;
 
 pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type_data::<jackdaw_jsn::Terrain, crate::ReflectEditorMeta>();
         app.init_resource::<TerrainEditMode>()
             .init_resource::<TerrainBrushSettings>()
             .init_resource::<TerrainSculptState>()
@@ -111,15 +114,23 @@ pub const CHUNK_SIZE: u32 = 32;
 
 // --- Spawn ---
 
-pub fn spawn_terrain_entity(commands: &mut Commands) {
-    commands.spawn((
-        Name::new("Terrain"),
-        Transform::default(),
-        Visibility::default(),
-        jackdaw_jsn::Terrain::default(),
-        TerrainDirtyChunks {
-            rebuild_all: true,
-            ..default()
-        },
-    ));
+impl EditorMeta for jackdaw_jsn::Terrain {
+    fn category() -> &'static str {
+        "Terrain"
+    }
+}
+
+pub fn spawn_terrain_entity(commands: &mut Commands) -> Entity {
+    commands
+        .spawn((
+            Name::new("Terrain"),
+            Transform::default(),
+            Visibility::default(),
+            jackdaw_jsn::Terrain::default(),
+            TerrainDirtyChunks {
+                rebuild_all: true,
+                ..default()
+            },
+        ))
+        .id()
 }
