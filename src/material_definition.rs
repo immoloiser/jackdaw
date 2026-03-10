@@ -66,6 +66,49 @@ impl Default for MaterialDefinition {
     }
 }
 
+impl MaterialDefinition {
+    pub fn from_standard_material(
+        asset_server: &AssetServer,
+        name: String,
+        standard_material: &StandardMaterial,
+    ) -> MaterialDefinition {
+        MaterialDefinition {
+            name,
+            base_color_texture: standard_material
+                .base_color_texture
+                .as_ref()
+                .and_then(|texture| Some(texture.path()?.to_string())),
+            normal_map_texture: standard_material
+                .normal_map_texture
+                .as_ref()
+                .and_then(|texture| Some(texture.path()?.to_string())),
+            metallic_roughness_texture: standard_material
+                .metallic_roughness_texture
+                .as_ref()
+                .and_then(|texture| Some(texture.path()?.to_string())),
+            roughness_texture: None,
+            metallic_texture: None,
+            emissive_texture: standard_material
+                .emissive_texture
+                .as_ref()
+                .and_then(|texture| Some(texture.path()?.to_string())),
+            occlusion_texture: standard_material
+                .occlusion_texture
+                .as_ref()
+                .and_then(|texture| Some(texture.path()?.to_string())),
+            depth_texture: None,
+            base_color: standard_material.base_color.to_srgba().to_f32_array(),
+            metallic: standard_material.metallic,
+            perceptual_roughness: standard_material.perceptual_roughness,
+            reflectance: standard_material.reflectance,
+            emissive_intensity: standard_material.emissive_exposure_weight,
+            double_sided: standard_material.double_sided,
+            flip_normal_map_y: standard_material.flip_normal_map_y,
+            is_gloss_map: false,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct MaterialLibrary {
     pub materials: Vec<MaterialDefinition>,
