@@ -16,7 +16,7 @@ use jackdaw_jsn::format::{
 use rfd::{AsyncFileDialog, FileHandle};
 use serde::de::DeserializeSeed;
 
-use crate::EditorEntity;
+use crate::{EditorEntity, EditorHidden};
 
 /// Component type path prefixes that should never be saved (runtime-only / internal).
 const SKIP_COMPONENT_PREFIXES: &[&str] = &[
@@ -257,34 +257,7 @@ fn finish_load_scene(world: &mut World, chosen: &std::path::Path) {
         load_scene_from_jsn(world, &jsn.scene);
 
         // Merge embedded material definitions into the library
-        if !jsn.assets.material_definitions.is_empty() {
-            let mut library = world.resource_mut::<crate::material_definition::MaterialLibrary>();
-            for jsn_def in &jsn.assets.material_definitions {
-                // Don't overwrite existing definitions with the same name
-                if library.get_by_name(&jsn_def.name).is_some() {
-                    continue;
-                }
-                library.add(crate::material_definition::MaterialDefinition {
-                    name: jsn_def.name.clone(),
-                    base_color_texture: jsn_def.base_color_texture.clone(),
-                    normal_map_texture: jsn_def.normal_map_texture.clone(),
-                    metallic_roughness_texture: jsn_def.metallic_roughness_texture.clone(),
-                    roughness_texture: jsn_def.roughness_texture.clone(),
-                    metallic_texture: jsn_def.metallic_texture.clone(),
-                    emissive_texture: jsn_def.emissive_texture.clone(),
-                    occlusion_texture: jsn_def.occlusion_texture.clone(),
-                    depth_texture: jsn_def.depth_texture.clone(),
-                    base_color: jsn_def.base_color,
-                    metallic: jsn_def.metallic,
-                    perceptual_roughness: jsn_def.perceptual_roughness,
-                    reflectance: jsn_def.reflectance,
-                    emissive_intensity: jsn_def.emissive_intensity,
-                    double_sided: jsn_def.double_sided,
-                    flip_normal_map_y: jsn_def.flip_normal_map_y,
-                    is_gloss_map: jsn_def.is_gloss_map,
-                });
-            }
-        }
+        merge_material_definitions(world, &jsn.assets.material_definitions);
 
         info!("Scene loaded from {path}");
 
@@ -327,7 +300,12 @@ fn build_scene_snapshot(world: &mut World) -> Vec<JsnEntity> {
             continue;
         }
         if let Some(children) = world.get::<Children>(entity) {
-            stack.extend(children.iter());
+            for child in children.iter() {
+                // Skip editor-hidden children (cascade shadows, etc.)
+                if world.get::<EditorHidden>(child).is_none() {
+                    stack.push(child);
+                }
+            }
         }
     }
 
@@ -413,11 +391,13 @@ pub fn load_scene_from_jsn(world: &mut World, entities: &[JsnEntity]) {
 
     // First pass: spawn entities with core fields
     let mut spawned: Vec<Entity> = Vec::new();
-    for jsn in entities {
+    for (i, jsn) in entities.iter().enumerate() {
         let mut entity = world.spawn_empty();
-        if let Some(name) = &jsn.name {
-            entity.insert(Name::new(name.clone()));
-        }
+        entity.insert(Name::new(
+            jsn.name
+                .clone()
+                .unwrap_or_else(|| format!("Entity {}", i)),
+        ));
         if let Some(t) = &jsn.transform {
             entity.insert(Transform::from(t.clone()));
         }
@@ -485,6 +465,38 @@ pub fn load_scene_from_jsn(world: &mut World, entities: &[JsnEntity]) {
     }
 }
 
+/// Merge material definitions from a JSN file into the library, skipping duplicates.
+pub fn merge_material_definitions(world: &mut World, defs: &[JsnMaterialDefinition]) {
+    if defs.is_empty() {
+        return;
+    }
+    let mut library = world.resource_mut::<crate::material_definition::MaterialLibrary>();
+    for jsn_def in defs {
+        if library.get_by_name(&jsn_def.name).is_some() {
+            continue;
+        }
+        library.add(crate::material_definition::MaterialDefinition {
+            name: jsn_def.name.clone(),
+            base_color_texture: jsn_def.base_color_texture.clone(),
+            normal_map_texture: jsn_def.normal_map_texture.clone(),
+            metallic_roughness_texture: jsn_def.metallic_roughness_texture.clone(),
+            roughness_texture: jsn_def.roughness_texture.clone(),
+            metallic_texture: jsn_def.metallic_texture.clone(),
+            emissive_texture: jsn_def.emissive_texture.clone(),
+            occlusion_texture: jsn_def.occlusion_texture.clone(),
+            depth_texture: jsn_def.depth_texture.clone(),
+            base_color: jsn_def.base_color,
+            metallic: jsn_def.metallic,
+            perceptual_roughness: jsn_def.perceptual_roughness,
+            reflectance: jsn_def.reflectance,
+            emissive_intensity: jsn_def.emissive_intensity,
+            double_sided: jsn_def.double_sided,
+            flip_normal_map_y: jsn_def.flip_normal_map_y,
+            is_gloss_map: jsn_def.is_gloss_map,
+        });
+    }
+}
+
 /// Collect the set of all editor entities (those with `EditorEntity` and all their descendants).
 fn collect_editor_entities(world: &mut World) -> HashSet<Entity> {
     let roots: Vec<Entity> = world
@@ -511,6 +523,18 @@ fn collect_editor_entities(world: &mut World) -> HashSet<Entity> {
 /// `Name` component (excluding editor entities) and all their descendants. This avoids
 /// destroying Bevy system entities (Window, Monitor, Pointer, etc.).
 fn clear_scene_entities(world: &mut World) {
+    // Clear selection first to prevent on_entity_deselected observer from
+    // firing on stale/despawned tree row entities.
+    world.resource_mut::<crate::selection::Selection>().entities.clear();
+
+    // Clear hierarchy tree rows and TreeIndex before despawning scene entities.
+    crate::hierarchy::clear_all_tree_rows(world);
+
+    // Clear undo/redo stacks — they hold entity references that become stale.
+    let mut history = world.resource_mut::<jackdaw_commands::CommandHistory>();
+    history.undo_stack.clear();
+    history.redo_stack.clear();
+
     let editor_set = collect_editor_entities(world);
 
     // Collect named non-editor entities as roots

@@ -8,7 +8,7 @@ use bevy::{
     reflect::serde::{TypedReflectDeserializer, TypedReflectSerializer},
     tasks::IoTaskPool,
 };
-use jackdaw_jsn::format::JsnEntity;
+use jackdaw_jsn::format::{JsnEntity, JsnScene};
 use serde::de::DeserializeSeed;
 
 use crate::{
@@ -156,15 +156,66 @@ pub fn instantiate_template(world: &mut World, path: &str, position: Vec3) {
         }
     };
 
+    let (_spawned, roots) = spawn_jsn_entities(world, &jsn_entities, position);
+    finalize_instantiation(world, &roots);
+}
+
+pub fn instantiate_jsn_prefab(world: &mut World, path: &str, position: Vec3) {
+    let json = match std::fs::read_to_string(path) {
+        Ok(json) => json,
+        Err(err) => {
+            warn!("Failed to read JSN prefab file '{path}': {err}");
+            return;
+        }
+    };
+
+    let jsn: JsnScene = match serde_json::from_str(&json) {
+        Ok(v) => v,
+        Err(err) => {
+            warn!("Failed to parse JSN prefab file: {err}");
+            return;
+        }
+    };
+
+    // Merge material definitions from the prefab
+    crate::scene_io::merge_material_definitions(world, &jsn.assets.material_definitions);
+
+    // Spawn entities using the shared JSN loader
+    let jsn_entities = &jsn.scene;
+    let (spawned, roots) = spawn_jsn_entities(world, jsn_entities, position);
+
+    // Attach JsnPrefab component to root entities
+    for &root in &roots {
+        world.entity_mut(root).insert(jackdaw_jsn::JsnPrefab {
+            path: path.to_string(),
+        });
+    }
+
+    // Build baseline snapshots for override tracking
+    build_prefab_baselines(world, &spawned);
+
+    // Finalize: undo support + selection
+    finalize_instantiation(world, &roots);
+}
+
+/// Spawn entities from JsnEntity data, offset roots by position.
+/// Returns (all_spawned_entities, root_entities).
+fn spawn_jsn_entities(
+    world: &mut World,
+    jsn_entities: &[JsnEntity],
+    position: Vec3,
+) -> (Vec<Entity>, Vec<Entity>) {
     let registry = world.resource::<AppTypeRegistry>().clone();
 
     // First pass: spawn entities with core fields
     let mut spawned: Vec<Entity> = Vec::new();
-    for jsn in &jsn_entities {
+    for (i, jsn) in jsn_entities.iter().enumerate() {
         let mut entity = world.spawn_empty();
-        if let Some(name) = &jsn.name {
-            entity.insert(Name::new(name.clone()));
-        }
+        entity.insert(Name::new(
+            jsn.name
+                .clone()
+                .unwrap_or_else(|| format!("Entity {}", i)),
+        ));
         if let Some(t) = &jsn.transform {
             entity.insert(Transform::from(t.clone()));
         }
@@ -244,9 +295,62 @@ pub fn instantiate_template(world: &mut World, path: &str, position: Vec3) {
         }
     }
 
+    (spawned, roots)
+}
+
+/// Build JsnPrefabBaseline for each spawned entity by serializing their current components.
+fn build_prefab_baselines(world: &mut World, spawned: &[Entity]) {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+
+    let skip_ids: HashSet<TypeId> = HashSet::from([
+        TypeId::of::<Name>(),
+        TypeId::of::<Transform>(),
+        TypeId::of::<GlobalTransform>(),
+        TypeId::of::<Visibility>(),
+        TypeId::of::<InheritedVisibility>(),
+        TypeId::of::<ViewVisibility>(),
+        TypeId::of::<ChildOf>(),
+        TypeId::of::<Children>(),
+    ]);
+
+    for &entity in spawned {
+        let mut components = HashMap::new();
+        let entity_ref = world.entity(entity);
+        for registration in registry.iter() {
+            if skip_ids.contains(&registration.type_id()) {
+                continue;
+            }
+            let type_path = registration.type_info().type_path_table().path();
+            if should_skip_component(type_path) {
+                continue;
+            }
+            // Skip JsnPrefab/JsnPrefabBaseline themselves
+            if type_path.contains("JsnPrefab") {
+                continue;
+            }
+            let Some(reflect_component) = registration.data::<ReflectComponent>() else {
+                continue;
+            };
+            let Some(component) = reflect_component.reflect(entity_ref) else {
+                continue;
+            };
+            let serializer = TypedReflectSerializer::new(component, &registry);
+            if let Ok(value) = serde_json::to_value(&serializer) {
+                components.insert(type_path.to_string(), value);
+            }
+        }
+        world
+            .entity_mut(entity)
+            .insert(jackdaw_jsn::JsnPrefabBaseline { components });
+    }
+}
+
+/// Finalize instantiation: set up undo + select roots.
+fn finalize_instantiation(world: &mut World, roots: &[Entity]) {
     // Build DespawnEntity snapshots for undo
     let mut despawn_cmds: Vec<DespawnEntity> = Vec::new();
-    for &root in &roots {
+    for &root in roots {
         despawn_cmds.push(DespawnEntity::from_world(world, root));
     }
 
@@ -254,7 +358,7 @@ pub fn instantiate_template(world: &mut World, path: &str, position: Vec3) {
     let old_selected = {
         let mut selection = world.resource_mut::<Selection>();
         let old = std::mem::take(&mut selection.entities);
-        selection.entities = roots.clone();
+        selection.entities = roots.to_vec();
         old
     };
 
@@ -266,7 +370,7 @@ pub fn instantiate_template(world: &mut World, path: &str, position: Vec3) {
     }
 
     // Select new roots
-    for &root in &roots {
+    for &root in roots {
         world.entity_mut(root).insert(Selected);
     }
 

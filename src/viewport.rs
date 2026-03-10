@@ -112,8 +112,9 @@ fn handle_viewport_drop(
     let path_lower = item.path.to_lowercase();
     let is_gltf = path_lower.ends_with(".gltf") || path_lower.ends_with(".glb");
     let is_template = path_lower.ends_with(".template.json");
+    let is_jsn = path_lower.ends_with(".jsn");
 
-    if !is_gltf && !is_template {
+    if !is_gltf && !is_template && !is_jsn {
         return;
     }
 
@@ -135,7 +136,11 @@ fn handle_viewport_drop(
     let snapped_pos = snap_settings.snap_translate_vec3_if(position, ctrl);
 
     let path = item.path.clone();
-    if is_template {
+    if is_jsn {
+        commands.queue(move |world: &mut World| {
+            crate::entity_templates::instantiate_jsn_prefab(world, &path, snapped_pos);
+        });
+    } else if is_template {
         commands.queue(move |world: &mut World| {
             crate::entity_templates::instantiate_template(world, &path, snapped_pos);
         });

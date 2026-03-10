@@ -111,6 +111,7 @@ fn file_icon(name: &str) -> Icon {
     match ext {
         "gltf" | "glb" => Icon::Cuboid,
         "png" | "jpg" | "jpeg" | "bmp" | "tga" | "ktx2" | "webp" => Icon::Image,
+        "jsn" => Icon::Blocks,
         "json" | "ron" => Icon::FileBraces,
         "rs" => Icon::FileCode,
         "toml" => Icon::Settings,

@@ -33,17 +33,23 @@ impl Selection {
         }
         self.entities.clear();
         self.entities.push(entity);
-        commands.entity(entity).insert(Selected);
+        if let Ok(mut ec) = commands.get_entity(entity) {
+            ec.insert(Selected);
+        }
     }
 
     /// Toggle selection of an entity (Ctrl+Click behavior).
     pub fn toggle(&mut self, commands: &mut Commands, entity: Entity) {
         if let Some(pos) = self.entities.iter().position(|&e| e == entity) {
             self.entities.remove(pos);
-            commands.entity(entity).remove::<Selected>();
+            if let Ok(mut ec) = commands.get_entity(entity) {
+                ec.remove::<Selected>();
+            }
         } else {
             self.entities.push(entity);
-            commands.entity(entity).insert(Selected);
+            if let Ok(mut ec) = commands.get_entity(entity) {
+                ec.insert(Selected);
+            }
         }
     }
 
@@ -51,7 +57,9 @@ impl Selection {
     pub fn extend(&mut self, commands: &mut Commands, entity: Entity) {
         if !self.entities.contains(&entity) {
             self.entities.push(entity);
-            commands.entity(entity).insert(Selected);
+            if let Ok(mut ec) = commands.get_entity(entity) {
+                ec.insert(Selected);
+            }
         }
     }
 
@@ -70,7 +78,9 @@ impl Selection {
         self.clear(commands);
         for &entity in entities {
             self.entities.push(entity);
-            commands.entity(entity).insert(Selected);
+            if let Ok(mut ec) = commands.get_entity(entity) {
+                ec.insert(Selected);
+            }
         }
     }
 

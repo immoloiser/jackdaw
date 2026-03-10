@@ -19,7 +19,7 @@ use crate::{
     brush::{BrushEditMode, BrushSelection, EditMode},
     draw_brush::DrawBrushState,
     gizmos::{GizmoMode, GizmoSpace},
-    hierarchy::{HierarchyPanel, HierarchyTreeContainer},
+    hierarchy::{HierarchyPanel, HierarchyShowAllButton, HierarchyTreeContainer},
     inspector::Inspector,
     material_browser,
     selection::Selection,
@@ -115,7 +115,7 @@ fn main_area(icon_font: Handle<Font>) -> impl Bundle {
         split_panel::panel_group(
             0.2,
             (
-                Spawn((split_panel::panel(1), entity_heiarchy())),
+                Spawn((split_panel::panel(1), entity_heiarchy(icon_font.clone()))),
                 Spawn(split_panel::panel_handle()),
                 Spawn((split_panel::panel(4), viewport_with_toolbar(icon_font))),
                 Spawn(split_panel::panel_handle()),
@@ -598,7 +598,7 @@ fn spawn_keybind_help_content(parent: &mut ChildSpawnerCommands) {
     }
 }
 
-fn entity_heiarchy() -> impl Bundle {
+fn entity_heiarchy(icon_font: Handle<Font>) -> impl Bundle {
     (
         HierarchyPanel,
         Node {
@@ -618,13 +618,55 @@ fn entity_heiarchy() -> impl Bundle {
                     ..Default::default()
                 },
                 children![
+                    // Filter row: text input + show-all toggle button
                     (
-                        HierarchyFilter,
-                        text_edit::text_edit(
-                            TextEditProps::default()
-                                .with_placeholder("Filter entities")
-                                .allow_empty()
-                        )
+                        Node {
+                            flex_direction: FlexDirection::Row,
+                            align_items: AlignItems::Center,
+                            column_gap: px(tokens::SPACING_XS),
+                            width: percent(100),
+                            ..Default::default()
+                        },
+                        children![
+                            (
+                                Node {
+                                    flex_grow: 1.0,
+                                    ..Default::default()
+                                },
+                                children![(
+                                    HierarchyFilter,
+                                    text_edit::text_edit(
+                                        TextEditProps::default()
+                                            .with_placeholder("Filter entities")
+                                            .allow_empty()
+                                    ),
+                                )],
+                            ),
+                            // Show all / named only toggle
+                            (
+                                HierarchyShowAllButton,
+                                Interaction::default(),
+                                Node {
+                                    width: px(24.0),
+                                    height: px(24.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    border_radius: BorderRadius::all(
+                                        px(tokens::BORDER_RADIUS_SM),
+                                    ),
+                                    ..Default::default()
+                                },
+                                children![(
+                                    Text::new(String::from(Icon::Eye.unicode())),
+                                    TextFont {
+                                        font: icon_font,
+                                        font_size: 14.0,
+                                        ..Default::default()
+                                    },
+                                    TextColor(tokens::TEXT_SECONDARY),
+                                )],
+                            ),
+                        ],
                     ),
                     (
                         HierarchyTreeContainer,

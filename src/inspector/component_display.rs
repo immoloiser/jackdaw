@@ -10,6 +10,7 @@ use bevy::{
         reflect::{AppTypeRegistry, ReflectComponent},
     },
     prelude::*,
+    reflect::serde::TypedReflectSerializer,
 };
 use jackdaw_feathers::{
     icons::{EditorFont, Icon, IconFont},
@@ -206,6 +207,9 @@ fn build_inspector_displays(
 
     let registry = type_registry.read();
 
+    // Check for prefab baseline (override tracking)
+    let baseline = entity_ref.get::<jackdaw_jsn::JsnPrefabBaseline>().cloned();
+
     // (short_name, module_group, component_id)
     let mut custom_groups = std::collections::HashSet::new();
     let mut comp_list: Vec<(String, String, ComponentId)> = archetype
@@ -357,6 +361,28 @@ fn build_inspector_displays(
         }
 
         let component_id = *component_id;
+
+        // Detect override: compare current component value vs baseline
+        let is_overridden = baseline.as_ref().is_some_and(|bl| {
+            let type_id = components
+                .get_info(component_id)
+                .and_then(|info| info.type_id());
+            if let Some(type_id) = type_id
+                && let Some(registration) = registry.get(type_id)
+                && let Some(reflect_component) = registration.data::<ReflectComponent>()
+                && let Some(component_ref) = reflect_component.reflect(entity_ref)
+            {
+                let type_path = registration.type_info().type_path_table().path();
+                if let Some(baseline_val) = bl.components.get(type_path) {
+                    let serializer = TypedReflectSerializer::new(component_ref, &registry);
+                    if let Ok(current_val) = serde_json::to_value(&serializer) {
+                        return current_val != *baseline_val;
+                    }
+                }
+            }
+            false
+        });
+
         let (display_entity, body_entity) = spawn_component_display(
             commands,
             name,
@@ -364,6 +390,7 @@ fn build_inspector_displays(
             component_id,
             &icon_font.0,
             &editor_font.0,
+            is_overridden,
         );
         commands
             .entity(display_entity)
@@ -563,6 +590,7 @@ fn spawn_component_display(
     component: ComponentId,
     icon_font: &Handle<Font>,
     editor_font: &Handle<Font>,
+    is_overridden: bool,
 ) -> (Entity, Entity) {
     let font = icon_font.clone();
     let body_font = editor_font.clone();
@@ -641,7 +669,12 @@ fn spawn_component_display(
         ChildOf(toggle_area),
     ));
 
-    // Component name
+    // Component name (orange if overridden)
+    let name_color = if is_overridden {
+        Color::srgb(1.0, 0.6, 0.3)
+    } else {
+        tokens::TEXT_DISPLAY_COLOR.into()
+    };
     commands.spawn((
         Text::new(name.to_string()),
         TextFont {
@@ -650,7 +683,7 @@ fn spawn_component_display(
             weight: FontWeight::MEDIUM,
             ..Default::default()
         },
-        TextColor(tokens::TEXT_DISPLAY_COLOR.into()),
+        TextColor(name_color),
         ChildOf(toggle_area),
     ));
 
@@ -661,6 +694,26 @@ fn spawn_component_display(
         .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
             commands.trigger(ToggleCollapsible { entity: section });
         });
+
+    // Revert button (only shown for overridden prefab components)
+    if is_overridden {
+        let source_entity = entity;
+        commands.spawn((
+            Text::new(String::from(Icon::RotateCcw.unicode())),
+            TextFont {
+                font: font.clone(),
+                font_size: tokens::FONT_SM,
+                ..Default::default()
+            },
+            TextColor(Color::srgb(1.0, 0.6, 0.3)),
+            ChildOf(header),
+            bevy::ui_widgets::observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
+                commands.queue(move |world: &mut World| {
+                    revert_component_to_baseline(world, source_entity, component);
+                });
+            }),
+        ));
+    }
 
     // Remove component button (X icon)
     commands.spawn((
@@ -745,4 +798,54 @@ pub(crate) fn filter_inspector_components(
             };
         }
     }
+}
+
+/// Revert a single component on a prefab instance back to its baseline value.
+fn revert_component_to_baseline(world: &mut World, entity: Entity, component_id: ComponentId) {
+    use bevy::ecs::reflect::AppTypeRegistry;
+    use bevy::reflect::serde::TypedReflectDeserializer;
+    use serde::de::DeserializeSeed;
+
+    let Some(baseline) = world.get::<jackdaw_jsn::JsnPrefabBaseline>(entity).cloned() else {
+        return;
+    };
+
+    let Some(type_id) = world
+        .components()
+        .get_info(component_id)
+        .and_then(|info| info.type_id())
+    else {
+        return;
+    };
+
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+
+    let Some(registration) = registry.get(type_id) else {
+        return;
+    };
+    let type_path = registration.type_info().type_path_table().path();
+
+    let Some(baseline_val) = baseline.components.get(type_path) else {
+        return;
+    };
+
+    let Some(reflect_component) = registration.data::<ReflectComponent>() else {
+        return;
+    };
+
+    let deserializer = TypedReflectDeserializer::new(registration, &registry);
+    let Ok(reflected) = deserializer.deserialize(baseline_val) else {
+        warn!("Failed to deserialize baseline for '{type_path}'");
+        return;
+    };
+
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        reflect_component.apply(world.entity_mut(entity), reflected.as_ref());
+    }));
+
+    drop(registry);
+
+    // Trigger inspector rebuild
+    world.entity_mut(entity).insert(InspectorDirty);
 }

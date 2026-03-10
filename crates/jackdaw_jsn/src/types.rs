@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 // Re-export geometry types so consumers see them from jackdaw_jsn
 pub use jackdaw_geometry::{BrushFaceData, BrushPlane};
@@ -279,6 +280,20 @@ impl PropertyValue {
 pub struct GltfSource {
     pub path: String,
     pub scene_index: usize,
+}
+
+/// Tracks the source `.jsn` file for a prefab instance.
+#[derive(Component, Reflect, Clone, Debug, Default, Serialize, Deserialize)]
+#[reflect(Component, Default)]
+pub struct JsnPrefab {
+    pub path: String,
+}
+
+/// Stores the original serialized component values from a prefab at instantiation time.
+/// Used to detect overrides and support per-component revert.
+#[derive(Component, Clone, Debug, Default)]
+pub struct JsnPrefabBaseline {
+    pub components: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Component, Reflect, Clone, Debug)]

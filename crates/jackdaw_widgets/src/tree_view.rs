@@ -104,6 +104,11 @@ impl TreeIndex {
     pub fn contains(&self, source: Entity) -> bool {
         self.map.contains_key(&source)
     }
+
+    /// Remove all mappings.
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
 }
 
 use std::collections::HashMap;

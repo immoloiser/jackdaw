@@ -45,12 +45,22 @@ pub struct HierarchyPanel;
 #[require(EditorEntity)]
 pub struct HierarchyTreeContainer;
 
+/// Controls whether the hierarchy shows all entities or only named ones.
+/// `false` = named only (default), `true` = all entities (minus EditorEntity).
+#[derive(Resource, Default)]
+pub struct HierarchyShowAll(pub bool);
+
+/// Marker for the show-all toggle button in the hierarchy panel.
+#[derive(Component)]
+pub struct HierarchyShowAllButton;
+
 pub struct HierarchyPlugin;
 
 impl Plugin for HierarchyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ContextMenuState>()
             .init_resource::<PendingTemplateDefaultName>()
+            .init_resource::<HierarchyShowAll>()
             .add_systems(
                 OnEnter(crate::AppState::Editor),
                 (
@@ -66,6 +76,9 @@ impl Plugin for HierarchyPlugin {
                     auto_focus_inline_rename,
                     handle_hierarchy_right_click.after(ContextMenuCloseSet),
                     populate_template_dialog,
+                    toggle_show_all_button,
+                    update_show_all_button_appearance,
+                    on_show_all_changed,
                     jackdaw_feathers::tree_view::tree_keyboard_navigation,
                 )
                     .run_if(in_state(crate::AppState::Editor)),
@@ -85,7 +98,8 @@ impl Plugin for HierarchyPlugin {
             .add_observer(on_tree_row_renamed)
             .add_observer(on_context_menu_action)
             .add_observer(on_visibility_toggled)
-            .add_observer(on_template_dialog_action);
+            .add_observer(on_template_dialog_action)
+            .add_observer(on_entity_hidden);
     }
 }
 
@@ -167,10 +181,13 @@ fn rebuild_hierarchy(world: &mut World) {
         .iter(world)
         .collect();
 
+    let show_all = world.resource::<HierarchyShowAll>().0;
+
     // Sort by (category, name) for consistent ordering
     let mut root_data: Vec<(Entity, EntityCategory, String)> = roots
         .into_iter()
         .filter(|&e| !world.resource::<TreeIndex>().contains(e))
+        .filter(|&e| show_all || world.get::<Name>(e).is_some())
         .map(|e| {
             let category = classify_entity(world, e);
             let name = world
@@ -223,6 +240,10 @@ fn on_root_entity_added(
         if world.get::<EditorEntity>(entity).is_some()
             || world.get::<EditorHidden>(entity).is_some()
         {
+            return;
+        }
+        // In named-only mode, skip entities without a Name
+        if !world.resource::<HierarchyShowAll>().0 && world.get::<Name>(entity).is_none() {
             return;
         }
         spawn_single_tree_row(world, entity, container);
@@ -397,6 +418,10 @@ fn on_entity_reparented(
         if world.resource::<TreeIndex>().contains(entity) {
             return;
         }
+        // In named-only mode, skip entities without a Name
+        if !world.resource::<HierarchyShowAll>().0 && world.get::<Name>(entity).is_none() {
+            return;
+        }
         spawn_single_tree_row(world, entity, container);
     });
 }
@@ -404,6 +429,21 @@ fn on_entity_reparented(
 /// When an entity's Name is removed, despawn its tree row.
 fn on_entity_removed(
     trigger: On<Despawn, Name>,
+    mut commands: Commands,
+    tree_index: Res<TreeIndex>,
+) {
+    let entity = trigger.event_target();
+
+    if let Some(tree_entity) = tree_index.get(entity) {
+        if let Ok(mut ec) = commands.get_entity(tree_entity) {
+            ec.despawn();
+        }
+    }
+}
+
+/// When EditorHidden is added, remove the tree row if one exists (handles race with observers).
+fn on_entity_hidden(
+    trigger: On<Add, EditorHidden>,
     mut commands: Commands,
     tree_index: Res<TreeIndex>,
 ) {
@@ -744,7 +784,9 @@ fn handle_hierarchy_right_click(
                     }
                 }
             }
-            world.entity_mut(target).insert(Selected);
+            if let Ok(mut ec) = world.get_entity_mut(target) {
+                ec.insert(Selected);
+            }
         });
     }
 
@@ -1224,6 +1266,76 @@ fn on_template_dialog_action(
             .resource_mut::<crate::entity_templates::PendingTemplateSave>()
             .entity = None;
     });
+}
+
+/// Toggle the show-all state when the button is pressed.
+fn toggle_show_all_button(
+    mut show_all: ResMut<HierarchyShowAll>,
+    interactions: Query<&Interaction, (Changed<Interaction>, With<HierarchyShowAllButton>)>,
+) {
+    for interaction in &interactions {
+        if *interaction == Interaction::Pressed {
+            show_all.0 = !show_all.0;
+        }
+    }
+}
+
+/// Update the show-all button icon color based on active state.
+fn update_show_all_button_appearance(
+    show_all: Res<HierarchyShowAll>,
+    buttons: Query<&Children, With<HierarchyShowAllButton>>,
+    mut text_colors: Query<&mut TextColor>,
+) {
+    if !show_all.is_changed() {
+        return;
+    }
+    let color = if show_all.0 {
+        tokens::TEXT_PRIMARY
+    } else {
+        tokens::TEXT_SECONDARY
+    };
+    for children in &buttons {
+        for child in children.iter() {
+            if let Ok(mut tc) = text_colors.get_mut(child) {
+                tc.0 = color;
+            }
+        }
+    }
+}
+
+/// When the show-all toggle changes, clear and rebuild the hierarchy.
+fn on_show_all_changed(show_all: Res<HierarchyShowAll>, mut commands: Commands) {
+    if show_all.is_changed() && !show_all.is_added() {
+        commands.queue(|world: &mut World| {
+            clear_all_tree_rows(world);
+            rebuild_hierarchy(world);
+        });
+    }
+}
+
+/// Despawn all tree rows and clear the TreeIndex.
+pub fn clear_all_tree_rows(world: &mut World) {
+    let container = world
+        .query_filtered::<Entity, With<HierarchyTreeContainer>>()
+        .iter(world)
+        .next();
+    let Some(container) = container else {
+        return;
+    };
+
+    // Collect tree row children of the container
+    let tree_rows: Vec<Entity> = world
+        .get::<Children>(container)
+        .map(|c| c.iter().collect())
+        .unwrap_or_default();
+
+    for row in tree_rows {
+        if let Ok(ec) = world.get_entity_mut(row) {
+            ec.despawn();
+        }
+    }
+
+    world.resource_mut::<TreeIndex>().clear();
 }
 
 /// Filter hierarchy tree rows based on the filter text input.

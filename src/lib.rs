@@ -17,6 +17,7 @@ pub mod material_definition;
 pub mod material_preview;
 pub mod modal_transform;
 pub mod navmesh;
+pub mod prefab_picker;
 pub mod project;
 pub mod project_select;
 pub mod scene_io;
@@ -97,6 +98,7 @@ impl Plugin for EditorPlugin {
                 alignment_guides::AlignmentGuidesPlugin,
                 navmesh::NavmeshPlugin,
                 terrain::TerrainPlugin,
+                prefab_picker::PrefabPickerPlugin,
             ))
             .insert_resource(UiTheme(create_dark_theme()))
             .init_resource::<layout::KeybindHelpPopover>()
@@ -224,6 +226,8 @@ fn populate_menu(world: &mut World) {
                     ("---", ""),
                     ("add.navmesh", "Navmesh Region"),
                     ("add.terrain", "Terrain"),
+                    ("---", ""),
+                    ("add.prefab", "Prefab..."),
                 ],
             ),
         ],
@@ -386,6 +390,11 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
                 let entity = terrain::spawn_terrain_entity(&mut commands);
                 selection.select_single(&mut commands, entity);
                 system_state.apply(world);
+            });
+        }
+        "add.prefab" => {
+            commands.queue(|world: &mut World| {
+                crate::prefab_picker::open_prefab_picker(world);
             });
         }
         _ => {}
