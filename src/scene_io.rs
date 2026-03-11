@@ -1,7 +1,17 @@
 use std::any::TypeId;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::env;
+use std::fmt::{self, Formatter};
+use std::path::{Path, PathBuf};
+use std::result::Result;
 
+use bevy::asset::{LoadedUntypedAsset, ReflectHandle};
+use bevy::reflect::serde::{
+    ReflectDeserializer, ReflectDeserializerProcessor, ReflectSerializer,
+    ReflectSerializerProcessor,
+};
+use bevy::reflect::{TypeRegistration, TypeRegistry};
 use bevy::{
     asset::AssetPath,
     ecs::reflect::AppTypeRegistry,
@@ -10,11 +20,10 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, IoTaskPool, Task, futures_lite::future},
     window::{PrimaryWindow, RawHandleWrapper},
 };
-use jackdaw_jsn::format::{
-    JsnAssets, JsnEntity, JsnHeader, JsnMaterialDefinition, JsnMetadata, JsnScene,
-};
+use jackdaw_jsn::format::{JsnAssets, JsnEntity, JsnHeader, JsnMetadata, JsnScene};
 use rfd::{AsyncFileDialog, FileHandle};
-use serde::de::DeserializeSeed;
+use serde::de::{DeserializeSeed, Visitor};
+use serde::{Deserializer, Serialize, Serializer};
 
 use crate::{EditorEntity, EditorHidden};
 
@@ -202,6 +211,74 @@ pub fn load_scene(world: &mut World) {
         return; // Dialog already open
     }
     spawn_open_dialog(world);
+}
+
+struct JsnDeserializerProcessor<'a> {
+    asset_server: &'a AssetServer,
+    parent_path: &'a Path,
+}
+
+impl<'a> ReflectDeserializerProcessor for JsnDeserializerProcessor<'a> {
+    fn try_deserialize<'de, D>(
+        &mut self,
+        registration: &TypeRegistration,
+        _: &TypeRegistry,
+        deserializer: D,
+    ) -> Result<Result<Box<dyn PartialReflect>, D>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if registration.data::<ReflectHandle>().is_none() {
+            // This isn't a handle; just deserialize it the usual way.
+            return Ok(Err(deserializer));
+        };
+        let type_info = registration.type_info();
+
+        let relative_path = match deserializer.deserialize_str(&*self) {
+            Ok(path) => path,
+            Err(error) => {
+                error!(
+                    "Failed to deserialize `{}`: {:?}",
+                    type_info.type_path(),
+                    error
+                );
+                return Err(error);
+            }
+        };
+
+        let stem_pos = relative_path.find('#').unwrap_or(relative_path.len());
+        let stem = self.relative_path_to_asset_path(&relative_path[0..stem_pos]);
+        let mut asset_path = stem.to_string_lossy().into_owned();
+        asset_path.push_str(&relative_path[stem_pos..]);
+
+        let handle: Handle<LoadedUntypedAsset> = self.asset_server.load_untyped(asset_path);
+        Ok(Ok(Box::new(handle).into_partial_reflect()))
+    }
+}
+
+impl<'a> Visitor<'_> for &'a JsnDeserializerProcessor<'a> {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+        write!(formatter, "a string")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(v.to_owned())
+    }
+}
+
+impl<'a> JsnDeserializerProcessor<'a> {
+    fn relative_path_to_asset_path(&self, asset_path: &str) -> PathBuf {
+        let mut asset_path = Path::new(asset_path).to_owned();
+        if asset_path.is_relative() {
+            asset_path = self.parent_path.join(asset_path);
+        }
+        asset_path
+    }
 }
 
 fn finish_load_scene(world: &mut World, chosen: &std::path::Path) {
@@ -563,6 +640,42 @@ fn clear_scene_entities(world: &mut World) {
     }
 }
 
+struct JsnSerializerProcessor<'a> {
+    parent_path: Cow<'a, Path>,
+}
+
+impl<'a> ReflectSerializerProcessor for JsnSerializerProcessor<'a> {
+    fn try_serialize<S>(
+        &self,
+        value: &dyn PartialReflect,
+        registry: &TypeRegistry,
+        serializer: S,
+    ) -> Result<Result<S::Ok, S>, S::Error>
+    where
+        S: Serializer,
+    {
+        let Some(value) = value.try_as_reflect() else {
+            // This type isn't reflectable; fall back to standard serialization.
+            return Ok(Err(serializer));
+        };
+        let type_id = value.reflect_type_info().type_id();
+        let Some(reflect_handle) = registry.get_type_data::<ReflectHandle>(type_id) else {
+            // This isn't a `Handle`.
+            return Ok(Err(serializer));
+        };
+
+        let untyped_handle = reflect_handle
+            .downcast_handle_untyped(value.as_any())
+            .expect("This must have been a handle");
+        let Some(path) = untyped_handle.path() else {
+            return Ok(Ok(serializer.serialize_unit()?));
+        };
+        let path = pathdiff::diff_paths(path.path(), &self.parent_path)
+            .unwrap_or_else(|| path.path().to_owned());
+        Ok(Ok(serializer.serialize_str(&path.to_string_lossy())?))
+    }
+}
+
 /// Build an asset manifest by scanning entity components.
 fn build_asset_manifest(world: &mut World) -> JsnAssets {
     let mut textures = Vec::new();
@@ -594,30 +707,39 @@ fn build_asset_manifest(world: &mut World) -> JsnAssets {
         }
     }
 
+    let scene_file_path = world.resource::<SceneFilePath>();
+    let parent_path = match scene_file_path
+        .path
+        .as_ref()
+        .and_then(|scene_file_path| Path::new(scene_file_path).parent())
+    {
+        Some(parent_path) => Cow::Borrowed(parent_path),
+        None => Cow::Owned(env::current_dir().expect("Couldn't access the current directory")),
+    };
+    let serializer_processor = JsnSerializerProcessor { parent_path };
+
     // Collect referenced material definitions from the library
-    let library = world.resource::<crate::material_definition::MaterialLibrary>();
-    let material_definitions: Vec<JsnMaterialDefinition> = material_names
+    let material_def_cache =
+        world.resource::<crate::material_definition::MaterialDefinitionCache>();
+    let standard_materials = world.resource::<Assets<StandardMaterial>>();
+    let app_type_registry = world.resource::<AppTypeRegistry>();
+    let type_registry = app_type_registry.read();
+    let material_definitions: Vec<serde_json::Value> = material_names
         .iter()
         .filter_map(|name| {
-            library.get_by_name(name).map(|def| JsnMaterialDefinition {
-                name: def.name.clone(),
-                base_color_texture: def.base_color_texture.clone(),
-                normal_map_texture: def.normal_map_texture.clone(),
-                metallic_roughness_texture: def.metallic_roughness_texture.clone(),
-                roughness_texture: def.roughness_texture.clone(),
-                metallic_texture: def.metallic_texture.clone(),
-                emissive_texture: def.emissive_texture.clone(),
-                occlusion_texture: def.occlusion_texture.clone(),
-                depth_texture: def.depth_texture.clone(),
-                base_color: def.base_color,
-                metallic: def.metallic,
-                perceptual_roughness: def.perceptual_roughness,
-                reflectance: def.reflectance,
-                emissive_intensity: def.emissive_intensity,
-                double_sided: def.double_sided,
-                flip_normal_map_y: def.flip_normal_map_y,
-                is_gloss_map: def.is_gloss_map,
-            })
+            let standard_material = standard_materials
+                .get(&material_def_cache.entries.get(name)?.material)
+                .cloned()?;
+            let serializer = ReflectSerializer::with_processor(
+                &standard_material,
+                &type_registry,
+                &serializer_processor,
+            );
+            let mut value = serializer.serialize(serde_json::value::Serializer).ok()?;
+            value
+                .as_object_mut()?
+                .insert("name".to_owned(), serde_json::Value::String(name.clone()));
+            Some(value)
         })
         .collect();
 
