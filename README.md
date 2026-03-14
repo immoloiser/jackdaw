@@ -1,4 +1,4 @@
-# Jackdaw
+# 🐦‍⬛ Jackdaw 🐦‍⬛
 
 A 3D editor built for and with [Bevy](https://bevyengine.org/).
 
@@ -6,13 +6,13 @@ A 3D editor built for and with [Bevy](https://bevyengine.org/).
 
 ## Features
 
-- **Brush-based geometry** — draw, edit, and CSG-combine convex brushes with vertex/edge/face/clip editing modes
-- **Material system** — texture browser, material definitions with ORM auto-detection, per-face application
-- **Terrain** — heightmap sculpting and texture painting
-- **Scene serialization** — save/load scenes in the `.jsn` format with full asset references
-- **Transform tools** — translate, rotate, scale with grid snapping and axis constraints
-- **Undo/redo** — full command history
-- **Extensible** — register custom components, add inspector panels, integrate with your game
+- **Brush-based geometry** draw, edit, and CSG-combine convex brushes with vertex/edge/face/clip editing modes
+- **Material system** texture browser, material definitions with ORM auto-detection, per-face application
+- **Terrain** heightmap sculpting and texture painting
+- **Scene serialization** save/load scenes in the `.jsn` format with full asset references
+- **Transform tools** translate, rotate, scale with grid snapping and axis constraints
+- **Undo/redo** full command history
+- **Extensible** register custom components, add inspector panels, integrate with your game
 
 ## Usage
 
@@ -67,9 +67,9 @@ For the full shortcuts reference, see the [book](https://jbuehler23.github.io/ja
 
 ## Documentation
 
-- [Book](https://jbuehler23.github.io/jackdaw/) — user guide, developer guide, and reference
-- [Examples](examples/) — runnable examples
-- [API Docs](https://docs.rs/jackdaw) — rustdoc
+- [Book](https://jbuehler23.github.io/jackdaw/) - user guide, developer guide, and reference
+- [Examples](examples/) - runnable examples
+- [API Docs](https://docs.rs/jackdaw) - rustdoc
 
 ## Contributing
 
