@@ -1831,6 +1831,14 @@ fn build_cutter_planes_polygon(active: &ActiveDraw) -> Vec<BrushFaceData> {
     faces
 }
 
+/// If `entity` is a child of a BrushGroup, return (parent_entity, parent_translation).
+fn brush_parent_group(world: &World, entity: Entity) -> Option<(Entity, Vec3)> {
+    let parent = world.get::<ChildOf>(entity)?.0;
+    world.get::<BrushGroup>(parent)?;
+    let translation = world.get::<GlobalTransform>(parent)?.translation();
+    Some((parent, translation))
+}
+
 /// Perform CSG subtraction: subtract the drawn cuboid from all intersecting brushes.
 fn subtract_drawn_brush(active: &ActiveDraw, commands: &mut Commands) {
     let cutter_planes = if active.polygon_vertices.is_empty() {
@@ -1930,6 +1938,15 @@ fn subtract_drawn_brush(active: &ActiveDraw, commands: &mut Commands) {
             original_snapshots.push((result.original_entity, snapshot));
         }
 
+        // Capture parent group info before despawning originals
+        let mut parent_groups: std::collections::HashMap<Entity, (Entity, Vec3)> =
+            std::collections::HashMap::new();
+        for result in &results {
+            if let Some(info) = brush_parent_group(world, result.original_entity) {
+                parent_groups.insert(result.original_entity, info);
+            }
+        }
+
         // Clean up selection: remove originals that are about to be despawned
         {
             let mut selection = world.resource_mut::<Selection>();
@@ -1949,10 +1966,31 @@ fn subtract_drawn_brush(active: &ActiveDraw, commands: &mut Commands) {
             }
         }
 
-        // Spawn fragments (group multi-fragment results under a BrushGroup parent)
+        // Spawn fragments (preserve existing parent group, or create new group for root brushes)
         let mut result_snapshots: Vec<(Entity, DynamicScene)> = Vec::new();
         for result in &results {
-            if result.fragments.len() == 1 {
+            if let Some(&(parent_entity, parent_translation)) =
+                parent_groups.get(&result.original_entity)
+            {
+                // Fragments stay in existing parent group
+                for (brush, transform) in &result.fragments {
+                    let entity = world
+                        .spawn((
+                            Name::new("Brush"),
+                            brush.clone(),
+                            Transform::from_translation(
+                                transform.translation - parent_translation,
+                            ),
+                            Visibility::default(),
+                            ChildOf(parent_entity),
+                        ))
+                        .id();
+                    let snapshot = DynamicSceneBuilder::from_world(world)
+                        .extract_entities(std::iter::once(entity))
+                        .build();
+                    result_snapshots.push((entity, snapshot));
+                }
+            } else if result.fragments.len() == 1 {
                 // Single fragment: spawn standalone
                 let (brush, transform) = &result.fragments[0];
                 let entity = world
@@ -2456,6 +2494,15 @@ pub fn csg_subtract_selected_impl(world: &mut World) {
         original_snapshots.push((result.original_entity, snapshot));
     }
 
+    // Capture parent group info before despawning originals
+    let mut parent_groups: std::collections::HashMap<Entity, (Entity, Vec3)> =
+        std::collections::HashMap::new();
+    for result in &results {
+        if let Some(info) = brush_parent_group(world, result.original_entity) {
+            parent_groups.insert(result.original_entity, info);
+        }
+    }
+
     // Clean up selection: remove targets about to be despawned
     {
         let despawning: Vec<Entity> = original_snapshots.iter().map(|(e, _)| *e).collect();
@@ -2475,10 +2522,31 @@ pub fn csg_subtract_selected_impl(world: &mut World) {
         }
     }
 
-    // Spawn fragments (group multi-fragment results under a BrushGroup parent)
+    // Spawn fragments (preserve existing parent group, or create new group for root brushes)
     let mut result_snapshots: Vec<(Entity, DynamicScene)> = Vec::new();
     for result in &results {
-        if result.fragments.len() == 1 {
+        if let Some(&(parent_entity, parent_translation)) =
+            parent_groups.get(&result.original_entity)
+        {
+            // Fragments stay in existing parent group
+            for (brush, transform) in &result.fragments {
+                let entity = world
+                    .spawn((
+                        Name::new("Brush"),
+                        brush.clone(),
+                        Transform::from_translation(
+                            transform.translation - parent_translation,
+                        ),
+                        Visibility::default(),
+                        ChildOf(parent_entity),
+                    ))
+                    .id();
+                let snapshot = DynamicSceneBuilder::from_world(world)
+                    .extract_entities(std::iter::once(entity))
+                    .build();
+                result_snapshots.push((entity, snapshot));
+            }
+        } else if result.fragments.len() == 1 {
             let (brush, transform) = &result.fragments[0];
             let entity = world
                 .spawn((

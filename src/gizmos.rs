@@ -14,16 +14,24 @@ use crate::{
     viewport_util::{point_to_segment_dist, window_to_viewport_cursor},
 };
 
-const AXIS_LENGTH: f32 = 1.5;
-const AXIS_TIP_LENGTH: f32 = 0.3;
-const ROTATE_RING_RADIUS: f32 = 1.2;
-const SCALE_CUBE_SIZE: f32 = 0.15;
+/// Gizmo group for transform gizmos — rendered on top of all geometry.
+#[derive(Default, Reflect, GizmoConfigGroup)]
+struct TransformGizmoGroup;
+
+const AXIS_LENGTH: f32 = 1.0;
+const AXIS_TIP_LENGTH: f32 = 0.25;
+const AXIS_START_OFFSET: f32 = 0.2;
+const ROTATE_RING_RADIUS: f32 = 1.0;
+const SCALE_CUBE_SIZE: f32 = 0.07;
+/// World units per unit of camera distance — controls the gizmo's constant screen-space size.
+const GIZMO_SCREEN_SCALE: f32 = 0.1;
+const INACTIVE_ALPHA: f32 = 0.15;
 
 const TRANSLATE_SENSITIVITY: f32 = 0.003;
 const ROTATE_SENSITIVITY: f32 = 0.01;
 const SCALE_SENSITIVITY: f32 = 0.005;
 const MIN_SCALE: f32 = 0.01;
-const AXIS_HIT_DISTANCE: f32 = 20.0;
+const AXIS_HIT_DISTANCE: f32 = 35.0;
 
 #[derive(Resource, Default, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum GizmoMode {
@@ -70,6 +78,8 @@ impl Plugin for TransformGizmosPlugin {
             .init_resource::<GizmoSpace>()
             .init_resource::<GizmoDragState>()
             .init_resource::<GizmoHoverState>()
+            .init_gizmo_group::<TransformGizmoGroup>()
+            .add_systems(Startup, configure_transform_gizmos)
             .add_systems(
                 Update,
                 (
@@ -87,6 +97,12 @@ impl Plugin for TransformGizmosPlugin {
                     .run_if(in_state(crate::AppState::Editor)),
             );
     }
+}
+
+fn configure_transform_gizmos(mut config_store: ResMut<GizmoConfigStore>) {
+    let (config, _) = config_store.config_mut::<TransformGizmoGroup>();
+    config.depth_bias = -1.0;
+    config.line.width = 3.0;
 }
 
 fn handle_gizmo_mode_keys(
@@ -150,11 +166,6 @@ fn handle_gizmo_hover(
         return;
     }
 
-    // No hover detection in Translate mode (direct drag replaces gizmo)
-    if *mode == GizmoMode::Translate {
-        return;
-    }
-
     let Some(primary) = selection.primary() else {
         return;
     };
@@ -179,7 +190,12 @@ fn handle_gizmo_hover(
     };
 
     let gizmo_pos = global_tf.translation();
-    let rotation = gizmo_rotation(global_tf, &space);
+    // Scale is inherently local — force local orientation so handles match transform.scale axes
+    let effective_space = if *mode == GizmoMode::Scale { &GizmoSpace::Local } else { &space };
+    let rotation = gizmo_rotation(global_tf, effective_space);
+
+    let cam_dist = (cam_tf.translation() - gizmo_pos).length();
+    let scale = cam_dist * GIZMO_SCREEN_SCALE;
 
     let axes = [
         (GizmoAxis::X, rotation * Vec3::X),
@@ -187,24 +203,29 @@ fn handle_gizmo_hover(
         (GizmoAxis::Z, rotation * Vec3::Z),
     ];
 
-    // Project gizmo origin and axis endpoints to screen space, find closest axis
-    let Some(origin_screen) = camera.world_to_viewport(cam_tf, gizmo_pos).ok() else {
-        return;
-    };
-
     let mut best_axis = None;
     let mut best_dist = f32::MAX;
     let threshold = AXIS_HIT_DISTANCE;
 
     for (axis, dir) in &axes {
-        let endpoint = match *mode {
-            GizmoMode::Translate | GizmoMode::Scale => gizmo_pos + *dir * AXIS_LENGTH,
-            GizmoMode::Rotate => gizmo_pos + *dir * ROTATE_RING_RADIUS,
+        let dist = match *mode {
+            GizmoMode::Translate | GizmoMode::Scale => {
+                let start = gizmo_pos + *dir * (AXIS_START_OFFSET * scale);
+                let endpoint = gizmo_pos + *dir * (AXIS_LENGTH * scale);
+                let Some(start_screen) = camera.world_to_viewport(cam_tf, start).ok() else {
+                    continue;
+                };
+                let Some(end_screen) = camera.world_to_viewport(cam_tf, endpoint).ok() else {
+                    continue;
+                };
+                point_to_segment_dist(viewport_cursor, start_screen, end_screen)
+            }
+            GizmoMode::Rotate => {
+                point_to_ring_screen_dist(
+                    viewport_cursor, camera, cam_tf, gizmo_pos, *dir, ROTATE_RING_RADIUS * scale,
+                )
+            }
         };
-        let Some(end_screen) = camera.world_to_viewport(cam_tf, endpoint).ok() else {
-            continue;
-        };
-        let dist = point_to_segment_dist(viewport_cursor, origin_screen, end_screen);
         if dist < threshold && dist < best_dist {
             best_dist = dist;
             best_axis = Some(*axis);
@@ -240,14 +261,6 @@ fn handle_gizmo_drag(
         || *edit_mode != crate::brush::EditMode::Object
         || draw_state.active.is_some()
     {
-        if drag_state.active {
-            drag_state.active = false;
-        }
-        return;
-    }
-
-    // No gizmo drag in Translate mode
-    if *mode == GizmoMode::Translate {
         if drag_state.active {
             drag_state.active = false;
         }
@@ -306,7 +319,8 @@ fn handle_gizmo_drag(
             return;
         };
 
-        let rotation = gizmo_rotation(global_tf, &space);
+        let effective_space = if *mode == GizmoMode::Scale { &GizmoSpace::Local } else { &space };
+        let rotation = gizmo_rotation(global_tf, effective_space);
         let axis_dir = match axis {
             GizmoAxis::X => rotation * Vec3::X,
             GizmoAxis::Y => rotation * Vec3::Y,
@@ -343,7 +357,7 @@ fn handle_gizmo_drag(
                 let screen_axis = match axis {
                     GizmoAxis::X => Vec2::Y,
                     GizmoAxis::Y => Vec2::X,
-                    GizmoAxis::Z => Vec2::X,
+                    GizmoAxis::Z => -Vec2::X,
                 };
                 let ctrl = keyboard.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
                 let raw_angle = mouse_delta.dot(screen_axis) * ROTATE_SENSITIVITY;
@@ -400,9 +414,10 @@ fn handle_gizmo_drag(
 }
 
 fn draw_gizmos(
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos<TransformGizmoGroup>,
     selection: Res<Selection>,
     transforms: Query<&GlobalTransform, With<Selected>>,
+    camera_query: Query<&GlobalTransform, With<MainViewportCamera>>,
     mode: Res<GizmoMode>,
     space: Res<GizmoSpace>,
     hover: Res<GizmoHoverState>,
@@ -415,20 +430,22 @@ fn draw_gizmos(
         return;
     }
 
-    // Don't draw in Translate mode (no gizmo)
-    if *mode == GizmoMode::Translate {
-        return;
-    }
-
     let Some(primary) = selection.primary() else {
         return;
     };
     let Ok(global_tf) = transforms.get(primary) else {
         return;
     };
+    let Ok(cam_tf) = camera_query.single() else {
+        return;
+    };
 
     let pos = global_tf.translation();
-    let rotation = gizmo_rotation(global_tf, &space);
+    let effective_space = if *mode == GizmoMode::Scale { &GizmoSpace::Local } else { &space };
+    let rotation = gizmo_rotation(global_tf, effective_space);
+
+    let cam_dist = (cam_tf.translation() - pos).length();
+    let scale = cam_dist * GIZMO_SCREEN_SCALE;
 
     let right = rotation * Vec3::X;
     let up = rotation * Vec3::Y;
@@ -440,46 +457,59 @@ fn draw_gizmos(
         hover.hovered_axis
     };
 
-    let x_color = axis_color(GizmoAxis::X, active_axis);
-    let y_color = axis_color(GizmoAxis::Y, active_axis);
-    let z_color = axis_color(GizmoAxis::Z, active_axis);
+    let dragging = drag_state.active;
+    let x_color = axis_color(GizmoAxis::X, active_axis, dragging);
+    let y_color = axis_color(GizmoAxis::Y, active_axis, dragging);
+    let z_color = axis_color(GizmoAxis::Z, active_axis, dragging);
 
     match *mode {
         GizmoMode::Translate => {
             gizmos
-                .arrow(pos, pos + right * AXIS_LENGTH, x_color)
-                .with_tip_length(AXIS_TIP_LENGTH);
+                .arrow(
+                    pos + right * (AXIS_START_OFFSET * scale),
+                    pos + right * (AXIS_LENGTH * scale),
+                    x_color,
+                )
+                .with_tip_length(AXIS_TIP_LENGTH * scale);
             gizmos
-                .arrow(pos, pos + up * AXIS_LENGTH, y_color)
-                .with_tip_length(AXIS_TIP_LENGTH);
+                .arrow(
+                    pos + up * (AXIS_START_OFFSET * scale),
+                    pos + up * (AXIS_LENGTH * scale),
+                    y_color,
+                )
+                .with_tip_length(AXIS_TIP_LENGTH * scale);
             gizmos
-                .arrow(pos, pos + forward * AXIS_LENGTH, z_color)
-                .with_tip_length(AXIS_TIP_LENGTH);
+                .arrow(
+                    pos + forward * (AXIS_START_OFFSET * scale),
+                    pos + forward * (AXIS_LENGTH * scale),
+                    z_color,
+                )
+                .with_tip_length(AXIS_TIP_LENGTH * scale);
         }
         GizmoMode::Rotate => {
             // Draw rotation rings
             gizmos.circle(
                 Isometry3d::new(pos, Quat::from_rotation_arc(Vec3::Z, right)),
-                ROTATE_RING_RADIUS,
+                ROTATE_RING_RADIUS * scale,
                 x_color,
             );
             gizmos.circle(
                 Isometry3d::new(pos, Quat::from_rotation_arc(Vec3::Z, up)),
-                ROTATE_RING_RADIUS,
+                ROTATE_RING_RADIUS * scale,
                 y_color,
             );
             gizmos.circle(
                 Isometry3d::new(pos, Quat::from_rotation_arc(Vec3::Z, forward)),
-                ROTATE_RING_RADIUS,
+                ROTATE_RING_RADIUS * scale,
                 z_color,
             );
         }
         GizmoMode::Scale => {
             // Draw scale handles: lines with cubes at the end
-            let cube_half = SCALE_CUBE_SIZE;
+            let cube_half = SCALE_CUBE_SIZE * scale;
             for (dir, color) in [(right, x_color), (up, y_color), (forward, z_color)] {
-                let end = pos + dir * AXIS_LENGTH;
-                gizmos.line(pos, end, color);
+                let end = pos + dir * (AXIS_LENGTH * scale);
+                gizmos.line(pos + dir * (AXIS_START_OFFSET * scale), end, color);
                 // Draw a small cube at the end using lines
                 let x = Vec3::X * cube_half;
                 let y = Vec3::Y * cube_half;
@@ -524,29 +554,53 @@ fn gizmo_rotation(global_tf: &GlobalTransform, space: &GizmoSpace) -> Quat {
     }
 }
 
-fn axis_color(axis: GizmoAxis, active: Option<GizmoAxis>) -> Color {
+fn axis_color(axis: GizmoAxis, active: Option<GizmoAxis>, dragging: bool) -> Color {
     let is_active = active == Some(axis);
-    match axis {
-        GizmoAxis::X => {
-            if is_active {
-                colors::AXIS_X_BRIGHT
-            } else {
-                colors::AXIS_X
-            }
-        }
-        GizmoAxis::Y => {
-            if is_active {
-                colors::AXIS_Y_BRIGHT
-            } else {
-                colors::AXIS_Y
-            }
-        }
-        GizmoAxis::Z => {
-            if is_active {
-                colors::AXIS_Z_BRIGHT
-            } else {
-                colors::AXIS_Z
-            }
-        }
+    let (normal, bright) = match axis {
+        GizmoAxis::X => (colors::AXIS_X, colors::AXIS_X_BRIGHT),
+        GizmoAxis::Y => (colors::AXIS_Y, colors::AXIS_Y_BRIGHT),
+        GizmoAxis::Z => (colors::AXIS_Z, colors::AXIS_Z_BRIGHT),
+    };
+
+    if is_active {
+        bright
+    } else if dragging {
+        // Dim non-active axes during drag
+        normal.with_alpha(INACTIVE_ALPHA)
+    } else {
+        normal
     }
+}
+
+fn point_to_ring_screen_dist(
+    cursor: Vec2,
+    camera: &Camera,
+    cam_tf: &GlobalTransform,
+    center: Vec3,
+    normal: Vec3,
+    radius: f32,
+) -> f32 {
+    const RING_SAMPLES: usize = 16;
+    let rot = Quat::from_rotation_arc(Vec3::Z, normal);
+    let mut min_dist = f32::MAX;
+    let mut prev_screen = None;
+
+    for i in 0..=RING_SAMPLES {
+        let angle = (i % RING_SAMPLES) as f32 * std::f32::consts::TAU / RING_SAMPLES as f32;
+        let local = Vec3::new(angle.cos() * radius, angle.sin() * radius, 0.0);
+        let world = center + rot * local;
+        let Some(screen) = camera.world_to_viewport(cam_tf, world).ok() else {
+            prev_screen = None;
+            continue;
+        };
+        if let Some(prev) = prev_screen {
+            let dist = point_to_segment_dist(cursor, prev, screen);
+            if dist < min_dist {
+                min_dist = dist;
+            }
+        }
+        prev_screen = Some(screen);
+    }
+
+    min_dist
 }

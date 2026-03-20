@@ -1,12 +1,12 @@
 use bevy::prelude::Color;
 
-// ── Axis colors (X = red, Y = green, Z = blue) ──
-pub const AXIS_X: Color = Color::srgb(1.0, 0.2, 0.2);
-pub const AXIS_Y: Color = Color::srgb(0.2, 1.0, 0.2);
-pub const AXIS_Z: Color = Color::srgb(0.2, 0.4, 1.0);
-pub const AXIS_X_BRIGHT: Color = Color::srgb(1.0, 0.5, 0.5);
-pub const AXIS_Y_BRIGHT: Color = Color::srgb(0.5, 1.0, 0.5);
-pub const AXIS_Z_BRIGHT: Color = Color::srgb(0.5, 0.7, 1.0);
+// ── Axis colors (Blender default theme, X = red, Y = green, Z = blue) ──
+pub const AXIS_X: Color = Color::srgba(1.0, 0.2, 0.32, 0.6);
+pub const AXIS_Y: Color = Color::srgba(0.545, 0.863, 0.0, 0.6);
+pub const AXIS_Z: Color = Color::srgba(0.157, 0.565, 1.0, 0.6);
+pub const AXIS_X_BRIGHT: Color = Color::srgba(1.0, 0.2, 0.32, 1.0);
+pub const AXIS_Y_BRIGHT: Color = Color::srgba(0.545, 0.863, 0.0, 1.0);
+pub const AXIS_Z_BRIGHT: Color = Color::srgba(0.157, 0.565, 1.0, 1.0);
 
 // ── Brush wireframe ──
 pub const WIREFRAME_SELECTED: Color = Color::srgb(0.133, 0.827, 0.933);

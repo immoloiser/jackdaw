@@ -20,7 +20,7 @@ use jackdaw_geometry::{
     EPSILON, brush_planes_to_world, compute_brush_geometry, compute_face_tangent_axes,
     point_inside_all_planes,
 };
-use jackdaw_jsn::{Brush, BrushFaceData, BrushPlane};
+use jackdaw_jsn::{Brush, BrushFaceData, BrushGroup, BrushPlane};
 
 /// Bundled keyboard + keybind input to keep system parameter counts under the 16-param limit.
 #[derive(SystemParam)]
@@ -1827,14 +1827,27 @@ pub(super) fn handle_clip_mode(
                     let back_owned = back_brush.clone();
                     let transform_owned = spawn_transform;
                     commands.queue(move |world: &mut World| {
-                        let entity = world
-                            .spawn((
-                                Name::new("Brush"),
-                                back_owned,
-                                transform_owned,
-                                Visibility::default(),
-                            ))
-                            .id();
+                        let parent_group = world
+                            .get::<ChildOf>(brush_entity)
+                            .map(|c| c.0)
+                            .filter(|&p| world.get::<BrushGroup>(p).is_some());
+
+                        let actual_transform = if parent_group.is_some() {
+                            *world.get::<Transform>(brush_entity).unwrap()
+                        } else {
+                            transform_owned
+                        };
+
+                        let mut spawner = world.spawn((
+                            Name::new("Brush"),
+                            back_owned,
+                            actual_transform,
+                            Visibility::default(),
+                        ));
+                        if let Some(parent) = parent_group {
+                            spawner.insert(ChildOf(parent));
+                        }
+                        let entity = spawner.id();
 
                         let snapshot = crate::commands::snapshot_entity(world, entity);
                         let create_cmd = CreateBrushCommand {
