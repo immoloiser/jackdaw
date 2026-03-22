@@ -48,8 +48,7 @@ pub const CLIP_SPLIT_BACK: Color = Color::srgba(0.3, 0.5, 1.0, 0.8);
 pub const CLIP_NORMAL_ARROW: Color = Color::srgb(1.0, 0.3, 0.3);
 
 // ── Alignment guides ──
-pub const ALIGNMENT_SPIKE: Color = Color::srgba(1.0, 1.0, 0.0, 0.5);
-pub const ALIGNMENT_GUIDE: Color = Color::srgba(0.0, 1.0, 1.0, 0.6);
+pub const ALIGNMENT_GUIDE: Color = Color::srgba(1.0, 0.65, 0.0, 0.85);
 
 // ── Navmesh visualization ──
 pub const NAVMESH_DETAIL_WIREFRAME: Color = Color::srgb(0.204, 0.827, 0.600);

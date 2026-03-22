@@ -3,17 +3,27 @@ use std::f32::consts::FRAC_PI_2;
 use avian3d::parry::math::Point as ParryPoint;
 use avian3d::parry::transformation::convex_hull;
 use bevy::prelude::*;
-
 use crate::brush::{self, BrushMeshCache};
 use crate::colors;
 use crate::selection::Selected;
+use crate::viewport::SceneViewport;
 use jackdaw_jsn::BrushGroup;
+
+#[derive(Component)]
+struct AxisLabel;
+
+#[derive(Resource)]
+struct AxisLabelEntities([Entity; 3]);
 
 pub struct ViewportOverlaysPlugin;
 
 impl Plugin for ViewportOverlaysPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OverlaySettings>()
+            .add_systems(
+                OnEnter(crate::AppState::Editor),
+                spawn_axis_labels.after(crate::viewport::setup_viewport),
+            )
             .add_systems(
                 PostUpdate,
                 draw_selection_bounding_boxes
@@ -393,17 +403,60 @@ fn draw_camera_gizmo(
     }
 }
 
+fn spawn_axis_labels(
+    mut commands: Commands,
+    viewport_entity: Single<Entity, With<SceneViewport>>,
+) {
+    let labels = [
+        ("X", colors::AXIS_X_BRIGHT),
+        ("Y", colors::AXIS_Y_BRIGHT),
+        ("Z", colors::AXIS_Z_BRIGHT),
+    ];
+    let mut entities = [Entity::PLACEHOLDER; 3];
+    for (i, (letter, color)) in labels.iter().enumerate() {
+        entities[i] = commands
+            .spawn((
+                AxisLabel,
+                crate::EditorEntity,
+                crate::NonSerializable,
+                Text::new(*letter),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(*color),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+            ))
+            .id();
+        commands.entity(*viewport_entity).add_child(entities[i]);
+    }
+    commands.insert_resource(AxisLabelEntities(entities));
+}
+
 /// Draw a small coordinate indicator showing camera orientation.
 fn draw_coordinate_indicator(
     mut gizmos: Gizmos,
     settings: Res<OverlaySettings>,
-    camera_query: Query<(&GlobalTransform, &Projection), With<crate::viewport::MainViewportCamera>>,
+    camera_query: Query<
+        (&Camera, &GlobalTransform, &Projection),
+        With<crate::viewport::MainViewportCamera>,
+    >,
+    label_entities: Option<Res<AxisLabelEntities>>,
+    mut label_query: Query<(&mut Node, &mut Visibility), With<AxisLabel>>,
+    viewport_node: Query<&ComputedNode, With<SceneViewport>>,
 ) {
     if !settings.show_coordinate_indicator {
+        // Hide labels when indicator is off
+        for (_, mut vis) in &mut label_query {
+            *vis = Visibility::Hidden;
+        }
         return;
     }
 
-    let Ok((cam_tf, projection)) = camera_query.single() else {
+    let Ok((camera, cam_tf, projection)) = camera_query.single() else {
         return;
     };
     let Projection::Perspective(proj) = projection else {
@@ -427,21 +480,35 @@ fn draw_coordinate_indicator(
     // Scale axis length proportionally to visible area for consistent apparent size
     let size = half_height * 0.07;
 
-    gizmos.line(
-        indicator_pos,
-        indicator_pos + Vec3::X * size,
-        colors::AXIS_X,
-    );
-    gizmos.line(
-        indicator_pos,
-        indicator_pos + Vec3::Y * size,
-        colors::AXIS_Y,
-    );
-    gizmos.line(
-        indicator_pos,
-        indicator_pos + Vec3::Z * size,
-        colors::AXIS_Z,
-    );
+    let axes = [Vec3::X, Vec3::Y, Vec3::Z];
+    let axis_colors = [colors::AXIS_X, colors::AXIS_Y, colors::AXIS_Z];
+
+    for (axis, color) in axes.iter().zip(axis_colors.iter()) {
+        gizmos.line(indicator_pos, indicator_pos + *axis * size, *color);
+    }
+
+    // Update axis label positions — project world positions to UI overlay coordinates
+    if let Some(label_entities) = label_entities {
+        let vp_node_size = viewport_node
+            .single()
+            .map(|n| n.size())
+            .unwrap_or(Vec2::ONE);
+        let render_target_size = camera.logical_viewport_size().unwrap_or(vp_node_size);
+
+        for (i, entity) in label_entities.0.iter().enumerate() {
+            if let Ok((mut node, mut vis)) = label_query.get_mut(*entity) {
+                let tip_pos = indicator_pos + axes[i] * size * 1.35;
+                if let Ok(vp_coords) = camera.world_to_viewport(cam_tf, tip_pos) {
+                    let ui_pos = vp_coords * vp_node_size / render_target_size;
+                    node.left = Val::Px(ui_pos.x - 4.0);
+                    node.top = Val::Px(ui_pos.y - 7.0);
+                    *vis = Visibility::Inherited;
+                } else {
+                    *vis = Visibility::Hidden;
+                }
+            }
+        }
+    }
 }
 
 /// Draw wireframe cuboid for NavmeshRegion entities showing their AABB bounds.

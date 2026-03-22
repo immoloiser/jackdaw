@@ -51,7 +51,7 @@ impl Plugin for ViewportPlugin {
     }
 }
 
-fn setup_viewport(
+pub(crate) fn setup_viewport(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     viewport_query: Single<Entity, With<SceneViewport>>,
