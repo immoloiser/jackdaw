@@ -513,17 +513,16 @@ fn refresh_browser_on_change(
                     .id(),
             };
 
-            commands.entity(item_entity)
-            .observe(highlight_on_hover)
-            .observe(unhighlight_on_out)
-            .observe(
-                move |_: On<Pointer<Click>>, mut commands: Commands| {
+            commands
+                .entity(item_entity)
+                .observe(highlight_on_hover)
+                .observe(unhighlight_on_out)
+                .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                     commands.trigger(FileItemDoubleClicked {
                         path: path_for_click.clone(),
                         is_directory: is_dir,
                     });
-                },
-            );
+                });
         }
     }
 
@@ -545,81 +544,83 @@ fn refresh_browser_on_change(
 
     // Build asset breadcrumb buttons
     // Flex Root
-    commands.spawn((
-        Node {
-            width: percent(100),
-            align_items: AlignItems::FlexStart,
-            justify_content: JustifyContent::FlexStart,
-            ..default()
-        },
-        ChildOf(breadcrumb_entity)
-    )).with_children(|parent| {
-        let mut path = state.root_directory.to_string_lossy().to_string();
-        let mut temp_path = path.clone(); // Borrow checker sheningans
-        // "root" base button
-        parent.spawn((
-            Button,
-            ThemedText,
-            Text::new("root"),
+    commands
+        .spawn((
             Node {
-                border_radius: BorderRadius::all(percent(10)),
-                height: Val::Px(tokens::FONT_SM),
+                width: percent(100),
+                align_items: AlignItems::FlexStart,
+                justify_content: JustifyContent::FlexStart,
                 ..default()
             },
-            TextFont {
-            font_size: tokens::FONT_SM,
-            ..Default::default()
-        },
-        )).observe(
-                move |_: On<Pointer<Click>>, mut commands: Commands| {
+            ChildOf(breadcrumb_entity),
+        ))
+        .with_children(|parent| {
+            let mut path = state.root_directory.to_string_lossy().to_string();
+            let mut temp_path = path.clone(); // Borrow checker sheningans
+            // "root" base button
+            parent
+                .spawn((
+                    Button,
+                    ThemedText,
+                    Text::new("root"),
+                    Node {
+                        border_radius: BorderRadius::all(percent(10)),
+                        height: Val::Px(tokens::FONT_SM),
+                        ..default()
+                    },
+                    TextFont {
+                        font_size: tokens::FONT_SM,
+                        ..Default::default()
+                    },
+                ))
+                .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                     commands.trigger(FileItemDoubleClicked {
                         path: temp_path.clone(),
                         is_directory: true,
                     });
-                },
-            )
-        .observe(highlight_on_hover)
-        .observe(unhighlight_on_out);
+                })
+                .observe(highlight_on_hover)
+                .observe(unhighlight_on_out);
 
-        for folder_name in path_str.split(std::path::MAIN_SEPARATOR) {
-            path += std::path::MAIN_SEPARATOR_STR;
-            path += folder_name;
-            temp_path = path.clone();
-            // "/" Separator
-            parent.spawn((
-                Text::new("/"),
-                ThemedText,
-                TextFont {
-                    font_size: tokens::FONT_SM,
-                    ..Default::default()
-                },
-            ));
-            // Actual folder_name button
-            parent.spawn((
-                Button,
-                ThemedText,
-                Text::new(folder_name),
-                Node {
-                    border_radius: BorderRadius::all(percent(10)),
-                    height: Val::Px(tokens::FONT_SM),
-                    ..default()
-                },
-                TextFont {
-                    font_size: tokens::FONT_SM,
-                    ..Default::default()
-                },
-            )).observe(
-                    move |_: On<Pointer<Click>>, mut commands: Commands| {
+            for folder_name in path_str.split(std::path::MAIN_SEPARATOR) {
+                path += std::path::MAIN_SEPARATOR_STR;
+                path += folder_name;
+                temp_path = path.clone();
+                // "/" Separator
+                parent.spawn((
+                    Text::new("/"),
+                    ThemedText,
+                    TextFont {
+                        font_size: tokens::FONT_SM,
+                        ..Default::default()
+                    },
+                ));
+                // Actual folder_name button
+                parent
+                    .spawn((
+                        Button,
+                        ThemedText,
+                        Text::new(folder_name),
+                        Node {
+                            border_radius: BorderRadius::all(percent(10)),
+                            height: Val::Px(tokens::FONT_SM),
+                            ..default()
+                        },
+                        TextFont {
+                            font_size: tokens::FONT_SM,
+                            ..Default::default()
+                        },
+                    ))
+                    .observe(move |_: On<Pointer<Click>>, mut commands: Commands| {
                         commands.trigger(FileItemDoubleClicked {
                             path: temp_path.clone(),
                             is_directory: true,
                         });
-                    },
-            )
-            .observe(highlight_on_hover)
-            .observe(unhighlight_on_out);
+                    })
+                    .observe(highlight_on_hover)
+                    .observe(unhighlight_on_out);
             }
-    });
+        });
 
     for mut text in root_label_query.iter_mut() {
         **text = state.root_directory.to_string_lossy().to_string();
