@@ -88,13 +88,18 @@ pub(crate) fn handle_viewport_click(
     let shift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
 
     // Don't select during gizmo drag, modal ops, viewport drag, brush edit mode, draw mode,
-    // terrain sculpt mode, or shift+click (which starts box select)
+    // terrain sculpt mode, or shift+click (which starts box select).
+    // Physics mode IS allowed — the user needs to click-select entities to
+    // drag them in the physics tool.
     if !mouse.just_pressed(MouseButton::Left)
         || shift
         || gizmo_drag.active
         || modal.active.is_some()
         || vp_drag.active.is_some()
-        || *edit_mode != crate::brush::EditMode::Object
+        || matches!(
+            *edit_mode,
+            crate::brush::EditMode::BrushEdit(_)
+        )
         || draw_state.active.is_some()
         || matches!(
             *terrain_edit_mode,
@@ -249,9 +254,10 @@ fn handle_box_select(
     mut selection: ResMut<Selection>,
     mut commands: Commands,
 ) {
-    // Don't box-select during gizmo drag, brush edit mode, or draw mode
+    // Don't box-select during gizmo drag, brush edit mode, or draw mode.
+    // Physics mode is allowed (same as Object for selection purposes).
     if gizmo_drag.active
-        || *edit_mode != crate::brush::EditMode::Object
+        || matches!(*edit_mode, crate::brush::EditMode::BrushEdit(_))
         || draw_state.active.is_some()
     {
         box_state.active = false;

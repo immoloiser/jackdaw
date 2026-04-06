@@ -239,7 +239,10 @@ pub(crate) fn build_inspector_displays(
             {
                 let table = registration.type_info().type_path_table();
                 let full_path = table.path();
-                if full_path.starts_with("jackdaw") && !full_path.starts_with("jackdaw_jsn") {
+                if full_path.starts_with("jackdaw")
+                    && !full_path.starts_with("jackdaw_jsn")
+                    && !full_path.starts_with("jackdaw_avian_integration")
+                {
                     return None;
                 }
                 // AST filter: only show components tracked in the AST
@@ -261,7 +264,10 @@ pub(crate) fn build_inspector_displays(
 
             // Fallback: use Components name
             let name = components.get_name(component_id)?;
-            if name.starts_with("jackdaw") && !name.starts_with("jackdaw_jsn") {
+            if name.starts_with("jackdaw")
+                && !name.starts_with("jackdaw_jsn")
+                && !name.starts_with("jackdaw_avian_integration")
+            {
                 return None;
             }
             Some((

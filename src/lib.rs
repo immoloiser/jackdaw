@@ -21,6 +21,7 @@ pub mod material_preview;
 pub mod modal_transform;
 pub mod navmesh;
 pub mod physics_brush_bridge;
+pub mod physics_tool;
 pub mod prefab_picker;
 pub mod project;
 pub mod project_select;
@@ -136,7 +137,9 @@ impl Plugin for EditorPlugin {
             .add_plugins(
                 jackdaw_avian_integration::PhysicsOverlaysPlugin::<selection::Selected>::new(),
             )
+            .add_plugins(jackdaw_avian_integration::simulation::PhysicsSimulationPlugin)
             .add_plugins(physics_brush_bridge::PhysicsBrushBridgePlugin)
+            .add_plugins(physics_tool::PhysicsToolPlugin)
             .configure_sets(
                 Update,
                 EditorInteraction

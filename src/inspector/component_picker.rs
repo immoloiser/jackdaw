@@ -100,7 +100,9 @@ pub(crate) fn on_add_component_button_click(
         // Skip editor-internal types
         let table = registration.type_info().type_path_table();
         let full_path = table.path();
-        if full_path.starts_with("jackdaw") {
+        if full_path.starts_with("jackdaw")
+            && !full_path.starts_with("jackdaw_avian_integration")
+        {
             continue;
         }
 

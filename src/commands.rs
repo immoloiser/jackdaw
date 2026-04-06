@@ -531,11 +531,19 @@ fn apply_jsn_field_to_ecs(
     };
 
     if field_path.is_empty() {
-        // Full component replacement via TypedReflectDeserializer
+        // Full component replacement via TypedReflectDeserializer.
+        // Always use `insert` (not `apply`) — this handles:
+        //  - Immutable components like RigidBody (apply panics on immutable)
+        //  - Components removed externally (e.g. avian removing ColliderConstructor)
+        //  - Normal mutable components (insert replaces in-place)
         let deserializer =
             bevy::reflect::serde::TypedReflectDeserializer::new(registration, &registry);
         if let Ok(reflected) = deserializer.deserialize(value) {
-            reflect_component.apply(world.entity_mut(entity), reflected.as_ref());
+            reflect_component.insert(
+                &mut world.entity_mut(entity),
+                reflected.as_ref(),
+                &registry,
+            );
         }
     } else {
         // Field-level update via reflect_path_mut

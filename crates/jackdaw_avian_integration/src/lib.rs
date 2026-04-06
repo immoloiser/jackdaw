@@ -1,7 +1,8 @@
 //! Avian physics integration for the jackdaw editor.
 //!
-//! Provides collider wireframe visualization, hierarchy arrows, and type
-//! registration for avian3d physics components.
+//! Provides collider wireframe visualization, hierarchy arrows, type
+//! registration for avian3d physics components, and an interactive
+//! simulation workflow (see [`simulation`]).
 
 use std::f32::consts::FRAC_PI_2;
 use std::marker::PhantomData;
@@ -9,8 +10,21 @@ use std::marker::PhantomData;
 use avian3d::parry::math::{Point, Real};
 use avian3d::parry::shape::{SharedShape, TypedShape};
 use avian3d::prelude::*;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+
+pub mod simulation;
+
+/// Editor-facing collider shape selector. Wraps avian's [`ColliderConstructor`]
+/// as a newtype so it lives outside avian's auto-processing pipeline (which
+/// consumes and removes `ColliderConstructor` after building `Collider`).
+///
+/// When this component is added or changed, the editor's sync system builds
+/// a `Collider` from the inner constructor and inserts it directly. Avian's
+/// `init_collider_constructors` never fires because `ColliderConstructor`
+/// is never placed on the entity.
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct AvianCollider(pub ColliderConstructor);
 
 pub mod physics_colors {
     use bevy::prelude::Color;
@@ -22,31 +36,6 @@ pub mod physics_colors {
     pub const COLLIDER_HIERARCHY_ARROW: Color = Color::srgba(0.4, 0.7, 1.0, 0.6);
 }
 
-/// Cache of computed collider shapes, keyed by mesh asset ID or entity ID.
-/// Collider is Arc-backed so clones are cheap.
-#[derive(Resource, Default)]
-pub struct ColliderPreviewCache {
-    by_mesh: HashMap<AssetId<Mesh>, Vec<(ColliderConstructor, Collider)>>,
-    by_entity: HashMap<Entity, (ColliderConstructor, Collider)>,
-}
-
-impl ColliderPreviewCache {
-    /// Insert a pre-built collider for an entity (used by the brush bridge system
-    /// to supply colliders for entities without standard Mesh3d handles).
-    pub fn insert_entity_collider(
-        &mut self,
-        entity: Entity,
-        constructor: ColliderConstructor,
-        collider: Collider,
-    ) {
-        self.by_entity.insert(entity, (constructor, collider));
-    }
-
-    /// Remove the cached collider for an entity.
-    pub fn remove_entity_collider(&mut self, entity: Entity) {
-        self.by_entity.remove(&entity);
-    }
-}
 
 #[derive(Resource)]
 pub struct PhysicsOverlayConfig {
@@ -92,14 +81,12 @@ impl<S: Component> Plugin for PhysicsOverlaysPlugin<S> {
         register_avian_types(app);
 
         app.init_resource::<PhysicsOverlayConfig>()
-            .init_resource::<ColliderPreviewCache>()
             .init_gizmo_group::<ColliderGizmoGroup>()
             .add_systems(
                 PostUpdate,
                 (draw_collider_gizmos::<S>, draw_hierarchy_arrows::<S>)
                     .after(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(PostUpdate, evict_collider_cache);
+            );
 
         let mut store = app.world_mut().resource_mut::<GizmoConfigStore>();
         let (config, _) = store.config_mut::<ColliderGizmoGroup>();
@@ -118,9 +105,10 @@ pub fn register_avian_types(app: &mut App) {
     app
         // Core
         .register_type::<RigidBody>()
-        .register_type::<ColliderConstructor>()
-        .register_type::<ColliderConstructorHierarchy>()
+        // ColliderConstructor is NOT registered — avian consumes and removes
+        // it. Users add AvianCollider instead (clean wrapper).
         .register_type::<Sensor>()
+        .register_type::<AvianCollider>()
         // Velocity
         .register_type::<LinearVelocity>()
         .register_type::<AngularVelocity>()
@@ -151,19 +139,16 @@ fn parry_point(p: &Point<Real>) -> Vec3 {
 fn draw_collider_gizmos<S: Component>(
     mut gizmos: Gizmos<ColliderGizmoGroup>,
     config: Res<PhysicsOverlayConfig>,
-    mut cache: ResMut<ColliderPreviewCache>,
     colliders: Query<(
         Entity,
-        &ColliderConstructor,
+        &Collider,
         &GlobalTransform,
         &InheritedVisibility,
         Option<&Sensor>,
-        Option<&Mesh3d>,
     )>,
     selected_bodies: Query<Entity, (With<RigidBody>, With<S>)>,
     children_query: Query<&Children>,
-    collider_check: Query<(), With<ColliderConstructor>>,
-    meshes: Res<Assets<Mesh>>,
+    collider_check: Query<(), With<Collider>>,
 ) {
     if !config.show_colliders {
         return;
@@ -178,7 +163,7 @@ fn draw_collider_gizmos<S: Component>(
         }
     }
 
-    for (entity, constructor, tf, vis, sensor, mesh3d) in &colliders {
+    for (entity, collider, tf, vis, sensor) in &colliders {
         if !vis.get() {
             continue;
         }
@@ -192,79 +177,7 @@ fn draw_collider_gizmos<S: Component>(
         };
 
         let transform = tf.compute_transform();
-        let pos = transform.translation;
-        let rot = transform.rotation;
-
-        let collider = get_or_compute_collider(&mut cache, entity, constructor, mesh3d, &meshes);
-
-        if let Some(c) = &collider {
-            draw_parry_shape(&mut gizmos, c.shape(), pos, rot, color);
-        }
-    }
-}
-
-/// Get a cached collider or compute and cache a new one.
-/// Uses mesh AssetId for Mesh3d entities, entity ID for externally-provided colliders.
-fn get_or_compute_collider(
-    cache: &mut ColliderPreviewCache,
-    entity: Entity,
-    constructor: &ColliderConstructor,
-    mesh3d: Option<&Mesh3d>,
-    meshes: &Assets<Mesh>,
-) -> Option<Collider> {
-    // Check entity-keyed cache first (brush bridge, primitives)
-    if let Some((cached_ctor, cached_collider)) = cache.by_entity.get(&entity) {
-        if cached_ctor == constructor {
-            return Some(cached_collider.clone());
-        }
-    }
-
-    // For mesh-asset-backed entities, cache by AssetId
-    if let Some(mesh3d) = mesh3d {
-        let asset_id = mesh3d.0.id();
-        if let Some(entries) = cache.by_mesh.get(&asset_id) {
-            if let Some((_, collider)) = entries.iter().find(|(c, _)| c == constructor) {
-                return Some(collider.clone());
-            }
-        }
-        let mesh = meshes.get(&mesh3d.0)?;
-        let collider = Collider::try_from_constructor(constructor.clone(), Some(mesh))?;
-        cache
-            .by_mesh
-            .entry(asset_id)
-            .or_default()
-            .push((constructor.clone(), collider.clone()));
-        return Some(collider);
-    }
-
-    // Primitive shapes (no mesh needed)
-    if !constructor.requires_mesh() {
-        let collider = Collider::try_from_constructor(constructor.clone(), None)?;
-        cache
-            .by_entity
-            .insert(entity, (constructor.clone(), collider.clone()));
-        return Some(collider);
-    }
-
-    None
-}
-
-/// Evict cache entries for entities that no longer have ColliderConstructor
-/// or mesh assets that were removed.
-fn evict_collider_cache(
-    mut cache: ResMut<ColliderPreviewCache>,
-    colliders: Query<Entity, With<ColliderConstructor>>,
-    mut mesh_events: MessageReader<AssetEvent<Mesh>>,
-) {
-    cache.by_entity.retain(|entity, _| colliders.contains(*entity));
-
-    for event in mesh_events.read() {
-        match event {
-            AssetEvent::Removed { id } | AssetEvent::Modified { id } => {
-                cache.by_mesh.remove(id);
-            }
-            _ => {}
-        }
+        draw_parry_shape(&mut gizmos, collider.shape(), transform.translation, transform.rotation, color);
     }
 }
 
@@ -473,8 +386,8 @@ fn draw_hierarchy_arrows<S: Component>(
     config: Res<PhysicsOverlayConfig>,
     selected_bodies: Query<(Entity, &GlobalTransform), (With<RigidBody>, With<S>)>,
     children_query: Query<&Children>,
-    collider_transforms: Query<&GlobalTransform, With<ColliderConstructor>>,
-    collider_check: Query<(), With<ColliderConstructor>>,
+    collider_transforms: Query<&GlobalTransform, With<Collider>>,
+    collider_check: Query<(), With<Collider>>,
 ) {
     if !config.show_hierarchy_arrows {
         return;
@@ -503,7 +416,7 @@ fn draw_hierarchy_arrows<S: Component>(
 fn collect_descendant_colliders(
     entity: Entity,
     children_query: &Query<&Children>,
-    collider_check: &Query<(), With<ColliderConstructor>>,
+    collider_check: &Query<(), With<Collider>>,
     out: &mut bevy::ecs::entity::EntityHashSet,
 ) {
     if let Ok(children) = children_query.get(entity) {
