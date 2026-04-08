@@ -336,7 +336,6 @@ fn setup_text_edit_input(
                         AlignItems::Center
                     },
                     column_gap: px(6),
-                    overflow: Overflow::clip(),
                     ..default()
                 },
                 BackgroundColor(ELEVATED_BG),
@@ -356,15 +355,20 @@ fn setup_text_edit_input(
         commands.entity(entity).add_child(wrapper_entity);
 
         if is_numeric && !config.drag_bottom {
-            const HITBOX_WIDTH: f32 = INPUT_HEIGHT * 0.9;
-            // Position hitbox after the prefix (if any) so it doesn't overlap
-            let hitbox_left = if has_prefix { AFFIX_SIZE as f32 } else { 0.0 };
+            // When there's a prefix (XYZ label), the drag hitbox covers ONLY the
+            // label area so clicking the value area still lets you type.
+            // Without a prefix, the hitbox covers the left portion of the input.
+            let (hitbox_left, hitbox_width) = if has_prefix {
+                (0.0, AFFIX_SIZE as f32)
+            } else {
+                (0.0, INPUT_HEIGHT * 0.9)
+            };
             let hitbox = commands
                 .spawn((
                     DragHitbox::default(),
                     Node {
                         position_type: PositionType::Absolute,
-                        width: px(HITBOX_WIDTH),
+                        width: px(hitbox_width),
                         height: px(INPUT_HEIGHT),
                         left: px(hitbox_left),
                         ..default()
@@ -624,15 +628,16 @@ fn handle_click_to_focus(
 
 fn handle_unfocus(
     mut focus: ResMut<InputFocus>,
+    mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    text_edits: Query<&ChildOf, With<EditorTextEdit>>,
+    text_edits: Query<(&ChildOf, &TextInputBuffer, Option<&TextEditSuffix>), With<EditorTextEdit>>,
     wrappers: Query<&Interaction, With<TextEditWrapper>>,
 ) {
     let Some(focused_entity) = focus.0 else {
         return;
     };
-    let Ok(child_of) = text_edits.get(focused_entity) else {
+    let Ok((child_of, buffer, suffix)) = text_edits.get(focused_entity) else {
         return;
     };
     let Ok(interaction) = wrappers.get(child_of.parent()) else {
@@ -641,11 +646,20 @@ fn handle_unfocus(
 
     let clicked_outside =
         mouse.get_just_pressed().next().is_some() && *interaction == Interaction::None;
-    let key_dismiss = keyboard.just_pressed(KeyCode::Escape)
-        || keyboard.just_pressed(KeyCode::Enter)
+    let enter_pressed = keyboard.just_pressed(KeyCode::Enter)
         || keyboard.just_pressed(KeyCode::NumpadEnter);
+    let key_dismiss = keyboard.just_pressed(KeyCode::Escape) || enter_pressed;
 
     if clicked_outside || key_dismiss {
+        // On Enter, emit the commit event NOW before the text input plugin
+        // can process the submit and potentially clear the buffer.
+        if enter_pressed {
+            let text = strip_suffix(&buffer.get_text(), suffix);
+            commands.trigger(TextEditCommitEvent {
+                entity: focused_entity,
+                text,
+            });
+        }
         focus.0 = None;
     }
 }

@@ -337,7 +337,7 @@ fn scene_tab(label: &str, workspace: ActiveWorkspace, active: bool) -> impl Bund
     )
 }
 
-/// Left column: Scene Tree panel (top, grows) + Project Files panel (bottom, fixed)
+/// Left column: Scene Tree panel (top) + Project Files panel (bottom), resizable split
 fn left_column(icon_font: Handle<Font>) -> impl Bundle {
     (
         EditorEntity,
@@ -345,15 +345,17 @@ fn left_column(icon_font: Handle<Font>) -> impl Bundle {
             width: percent(100),
             height: percent(100),
             flex_direction: FlexDirection::Column,
-            row_gap: px(tokens::PANEL_GAP),
             ..Default::default()
         },
-        children![
-            // Scene Tree panel (grows)
-            entity_heiarchy(icon_font),
-            // Project Files panel (fixed height)
-            project_files_panel(),
-        ],
+        // Vertical split: hierarchy (top, ratio 3) | project files (bottom, ratio 1)
+        split_panel::panel_group(
+            0.15,
+            (
+                Spawn((split_panel::panel(3), entity_heiarchy(icon_font))),
+                Spawn(split_panel::panel_handle()),
+                Spawn((split_panel::panel(1), project_files_panel())),
+            ),
+        ),
     )
 }
 
@@ -364,15 +366,17 @@ fn project_files_panel() -> impl Bundle {
         Node {
             flex_direction: FlexDirection::Column,
             width: percent(100),
-            height: px(250.0),
-            flex_shrink: 0.0,
+            height: percent(100),
             overflow: Overflow::clip(),
             border_radius: BorderRadius::all(px(tokens::BORDER_RADIUS_LG)),
             ..Default::default()
         },
         BackgroundColor(tokens::PANEL_BG),
         children![
-            panel_header::panel_header("Project Files"),
+            panel_header::panel_tab_bar(
+                &[panel_header::TabDef::new("Project Files", true)],
+                true,
+            ),
             // Search input
             (
                 Node {

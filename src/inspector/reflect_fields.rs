@@ -1683,23 +1683,38 @@ pub(crate) fn on_text_edit_commit(
     mut commands: Commands,
     remote_proxies: Query<(), With<crate::remote::entity_browser::RemoteEntityProxy>>,
 ) {
-    // Walk up from the committed entity to find a FieldBinding
+    // Walk up from the committed entity to find a FieldBinding.
+    // Check the entity itself first, then walk up through parents.
     let mut current = event.entity;
     let mut found = None;
-    for _ in 0..4 {
-        let Ok(child_of) = child_of_query.get(current) else {
-            break;
-        };
-        if let Ok((binding, variant)) = bindings.get(child_of.parent()) {
-            found = Some((
-                binding.source_entity,
-                binding.type_path.clone(),
-                binding.field_path.clone(),
-                variant.copied(),
-            ));
-            break;
+
+    // Check the committed entity itself
+    if let Ok((binding, variant)) = bindings.get(current) {
+        found = Some((
+            binding.source_entity,
+            binding.type_path.clone(),
+            binding.field_path.clone(),
+            variant.copied(),
+        ));
+    }
+
+    // Walk up through parents (up to 6 levels for deeply nested UI)
+    if found.is_none() {
+        for _ in 0..6 {
+            let Ok(child_of) = child_of_query.get(current) else {
+                break;
+            };
+            if let Ok((binding, variant)) = bindings.get(child_of.parent()) {
+                found = Some((
+                    binding.source_entity,
+                    binding.type_path.clone(),
+                    binding.field_path.clone(),
+                    variant.copied(),
+                ));
+                break;
+            }
+            current = child_of.parent();
         }
-        current = child_of.parent();
     }
 
     let Some((source_entity, tp, path, variant)) = found else {
