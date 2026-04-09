@@ -19,15 +19,9 @@ We have also recently refactored our UX/UI to be _very_ similar to the official 
 
 https://github.com/user-attachments/assets/c8f1dc66-ef32-44c6-837b-35b7eeb01e41
 
-
-
-
-https://github.com/user-attachments/assets/1e2d7cfe-601c-4af7-8dd6-a9cddc4a3c6f
-
-
-
 https://github.com/user-attachments/assets/779af6e1-bd34-49f4-a3b4-ccd474ea2f76
 
+https://github.com/user-attachments/assets/1e2d7cfe-601c-4af7-8dd6-a9cddc4a3c6f
 
 
 
