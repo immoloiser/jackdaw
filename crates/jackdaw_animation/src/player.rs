@@ -16,7 +16,9 @@
 //! [`AnimationTargetId`]: bevy::animation::AnimationTargetId
 //! [`AnimatedBy`]: bevy::animation::AnimatedBy
 
-use bevy::animation::{AnimatedBy, AnimationPlayer, AnimationTargetId, graph::AnimationGraphHandle};
+use bevy::animation::{
+    AnimatedBy, AnimationPlayer, AnimationTargetId, graph::AnimationGraphHandle,
+};
 use bevy::prelude::*;
 
 use crate::blend_graph::{AnimationBlendGraph, ClipNodeRef, OutputNode};
@@ -269,14 +271,13 @@ pub fn auto_bind_player(
         // (the GltfSource root) that has an `AnimationPlayer`. If the
         // scene hasn't finished spawning yet, none will exist and we
         // retry next frame.
-        let Some(host) = find_animation_player_descendant(parent_entity, &children_q, &anim_players)
+        let Some(host) =
+            find_animation_player_descendant(parent_entity, &children_q, &anim_players)
         else {
             return;
         };
         commands.queue(move |world: &mut World| {
-            world
-                .entity_mut(host)
-                .insert(AnimationGraphHandle(graph));
+            world.entity_mut(host).insert(AnimationGraphHandle(graph));
             if let Some(mut player) = world.get_mut::<AnimationPlayer>(host) {
                 if player.animation_mut(root_node).is_none() {
                     player.play(root_node);
@@ -516,4 +517,3 @@ pub fn sync_cursor_from_player(
         }
     }
 }
-

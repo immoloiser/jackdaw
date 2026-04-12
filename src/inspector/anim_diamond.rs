@@ -312,9 +312,7 @@ fn spawn_typed_keyframe(
         }
         _ => {
             let _ = F32Keyframe::default();
-            warn!(
-                "Diamond click: no snapshot dispatch for {component_type_path}.{field_path}",
-            );
+            warn!("Diamond click: no snapshot dispatch for {component_type_path}.{field_path}",);
         }
     }
 }
@@ -419,9 +417,7 @@ fn compute_diamond_state(
     let Ok(source_children) = children_query.get(btn.source_entity) else {
         return DiamondState::NoTrack;
     };
-    let clip_entity = source_children
-        .iter()
-        .find(|c| clips.contains(*c));
+    let clip_entity = source_children.iter().find(|c| clips.contains(*c));
     let Some(clip_entity) = clip_entity else {
         return DiamondState::NoTrack;
     };
@@ -435,8 +431,7 @@ fn compute_diamond_state(
         tracks
             .get(*c)
             .map(|t| {
-                t.component_type_path == btn.component_type_path
-                    && t.field_path == btn.field_path
+                t.component_type_path == btn.component_type_path && t.field_path == btn.field_path
             })
             .unwrap_or(false)
     });

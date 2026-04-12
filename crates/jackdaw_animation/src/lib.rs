@@ -60,9 +60,7 @@ pub mod compile;
 pub mod player;
 pub mod timeline;
 
-pub use blend_graph::{
-    AdditiveBlendNode, AnimationBlendGraph, BlendNode, ClipNodeRef, OutputNode,
-};
+pub use blend_graph::{AdditiveBlendNode, AnimationBlendGraph, BlendNode, ClipNodeRef, OutputNode};
 pub use clip::{
     AnimationTrack, Clip, F32Keyframe, GltfClipRef, Interpolation, KeyframeClipboard,
     KeyframeClipboardEntry, KeyframeValue, QuatKeyframe, SelectedClip, SelectedKeyframes,

@@ -61,7 +61,6 @@ pub struct GraphNodeBody {
     pub node: Entity,
 }
 
-
 const NODE_MIN_WIDTH: f32 = 160.0;
 const TERMINAL_DOT_SIZE: f32 = 10.0;
 /// Invisible hit-area wrapper around the visual dot. Larger than the dot
@@ -84,7 +83,11 @@ const UNSELECTED_BORDER: Color = Color::srgba(1.0, 1.0, 1.0, 0.08);
 /// [`GraphCanvasWorld`](crate::canvas::GraphCanvasWorld) entity. The caller
 /// is responsible for spawning child `Terminal` components in lockstep; this
 /// function only builds UI.
-pub fn node(node_entity: Entity, node_component: &GraphNode, descriptor: &NodeTypeDescriptor) -> impl Bundle {
+pub fn node(
+    node_entity: Entity,
+    node_component: &GraphNode,
+    descriptor: &NodeTypeDescriptor,
+) -> impl Bundle {
     let accent = descriptor.accent_color;
     let title = descriptor.display_name.clone();
 
@@ -183,7 +186,13 @@ fn build_terminal_column(
     let rows: Vec<_> = entries
         .into_iter()
         .map(|(idx, term)| {
-            terminal_row(node_entity, direction, idx as u32, term.label.clone(), term.color)
+            terminal_row(
+                node_entity,
+                direction,
+                idx as u32,
+                term.label.clone(),
+                term.color,
+            )
         })
         .collect();
 

@@ -275,7 +275,8 @@ impl EditorCommand for RemoveGraphNodesCmd {
         }
 
         // Despawn connections touching any removed node.
-        let to_remove_set: std::collections::HashSet<Entity> = self.entities.iter().copied().collect();
+        let to_remove_set: std::collections::HashSet<Entity> =
+            self.entities.iter().copied().collect();
         let connections_to_remove: Vec<Entity> = {
             let mut q = world.query::<(Entity, &Connection)>();
             q.iter(world)
@@ -308,13 +309,10 @@ impl EditorCommand for RemoveGraphNodesCmd {
         // Respawn nodes. Since we can't reuse original Entity ids, we build
         // an id-remap so incident connections can be re-targeted at the new
         // node entities.
-        let mut remap: std::collections::HashMap<Entity, Entity> =
-            std::collections::HashMap::new();
+        let mut remap: std::collections::HashMap<Entity, Entity> = std::collections::HashMap::new();
 
         for snap in &self.snapshot {
-            let new_entity = world
-                .spawn((snap.node.clone(), ChildOf(self.graph)))
-                .id();
+            let new_entity = world.spawn((snap.node.clone(), ChildOf(self.graph))).id();
             remap.insert(snap.original, new_entity);
 
             for (idx, direction, data_type, label) in &snap.terminals {
@@ -337,8 +335,12 @@ impl EditorCommand for RemoveGraphNodesCmd {
         let mut seen = std::collections::HashSet::<(Entity, u32, Entity, u32)>::new();
         for snap in &self.snapshot {
             for &(src, st, tgt, tt) in &snap.incident {
-                let Some(&new_src) = remap.get(&src) else { continue };
-                let Some(&new_tgt) = remap.get(&tgt) else { continue };
+                let Some(&new_src) = remap.get(&src) else {
+                    continue;
+                };
+                let Some(&new_tgt) = remap.get(&tgt) else {
+                    continue;
+                };
                 let key = (new_src, st, new_tgt, tt);
                 if !seen.insert(key) {
                     continue;
@@ -398,4 +400,3 @@ impl EditorCommand for RemoveConnectionCmd {
         "Remove connection"
     }
 }
-

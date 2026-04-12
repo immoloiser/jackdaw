@@ -181,10 +181,8 @@ impl Plugin for EditorPlugin {
                     register_animation_entities_in_ast,
                     follow_scene_selection_to_clip,
                     sync_selected_keyframes_from_selection,
-                    handle_keyframe_delete_intercept
-                        .before(entity_ops::handle_entity_keys),
-                    handle_timeline_shortcuts
-                        .before(entity_ops::handle_entity_keys),
+                    handle_keyframe_delete_intercept.before(entity_ops::handle_entity_keys),
+                    handle_timeline_shortcuts.before(entity_ops::handle_entity_keys),
                 )
                     .run_if(in_state(AppState::Editor)),
             )
@@ -425,7 +423,9 @@ fn follow_scene_selection_to_clip(
             }
             return;
         }
-        let Ok(parent) = parents.get(cursor) else { break };
+        let Ok(parent) = parents.get(cursor) else {
+            break;
+        };
         cursor = parent.parent();
     }
 
@@ -495,10 +495,7 @@ impl jackdaw_commands::EditorCommand for DespawnKeyframeCmd {
     fn undo(&mut self, world: &mut World) {
         let new_id = match self {
             Self::Vec3 {
-                track,
-                time,
-                value,
-                ..
+                track, time, value, ..
             } => world
                 .spawn((
                     jackdaw_animation::Vec3Keyframe {
@@ -509,10 +506,7 @@ impl jackdaw_commands::EditorCommand for DespawnKeyframeCmd {
                 ))
                 .id(),
             Self::Quat {
-                track,
-                time,
-                value,
-                ..
+                track, time, value, ..
             } => world
                 .spawn((
                     jackdaw_animation::QuatKeyframe {
@@ -523,10 +517,7 @@ impl jackdaw_commands::EditorCommand for DespawnKeyframeCmd {
                 ))
                 .id(),
             Self::F32 {
-                track,
-                time,
-                value,
-                ..
+                track, time, value, ..
             } => world
                 .spawn((
                     jackdaw_animation::F32Keyframe {
@@ -605,7 +596,11 @@ fn handle_keyframe_delete_intercept(world: &mut World) {
 
     // Don't process delete while a text input is focused — matches
     // the guard in `handle_entity_keys`.
-    if world.resource::<bevy::input_focus::InputFocus>().0.is_some() {
+    if world
+        .resource::<bevy::input_focus::InputFocus>()
+        .0
+        .is_some()
+    {
         return;
     }
 
@@ -687,21 +682,36 @@ enum SpawnKeyframeCmd {
 impl jackdaw_commands::EditorCommand for SpawnKeyframeCmd {
     fn execute(&mut self, world: &mut World) {
         let new_id = match self {
-            Self::Vec3 { track, time, value, .. } => world
+            Self::Vec3 {
+                track, time, value, ..
+            } => world
                 .spawn((
-                    jackdaw_animation::Vec3Keyframe { time: *time, value: *value },
+                    jackdaw_animation::Vec3Keyframe {
+                        time: *time,
+                        value: *value,
+                    },
                     ChildOf(*track),
                 ))
                 .id(),
-            Self::Quat { track, time, value, .. } => world
+            Self::Quat {
+                track, time, value, ..
+            } => world
                 .spawn((
-                    jackdaw_animation::QuatKeyframe { time: *time, value: *value },
+                    jackdaw_animation::QuatKeyframe {
+                        time: *time,
+                        value: *value,
+                    },
                     ChildOf(*track),
                 ))
                 .id(),
-            Self::F32 { track, time, value, .. } => world
+            Self::F32 {
+                track, time, value, ..
+            } => world
                 .spawn((
-                    jackdaw_animation::F32Keyframe { time: *time, value: *value },
+                    jackdaw_animation::F32Keyframe {
+                        time: *time,
+                        value: *value,
+                    },
                     ChildOf(*track),
                 ))
                 .id(),
@@ -749,7 +759,11 @@ impl jackdaw_commands::EditorCommand for SpawnKeyframeCmd {
 /// All three gate on `InputFocus` being empty so typing in a text
 /// field doesn't trigger the timeline shortcuts.
 fn handle_timeline_shortcuts(world: &mut World) {
-    if world.resource::<bevy::input_focus::InputFocus>().0.is_some() {
+    if world
+        .resource::<bevy::input_focus::InputFocus>()
+        .0
+        .is_some()
+    {
         return;
     }
 
@@ -761,8 +775,8 @@ fn handle_timeline_shortcuts(world: &mut World) {
         )
     };
 
-    let timeline_active = world.resource::<layout::ActiveDockWindow>().0
-        == layout::DockWindowKind::Timeline;
+    let timeline_active =
+        world.resource::<layout::ActiveDockWindow>().0 == layout::DockWindowKind::Timeline;
     if timeline_active && !ctrl {
         handle_timeline_scrub_keys(world, shift);
     }
@@ -804,7 +818,9 @@ fn handle_timeline_scrub_keys(world: &mut World, shift: bool) {
         return;
     };
     let duration = clip.duration.max(0.01);
-    let current_time = world.resource::<jackdaw_animation::TimelineCursor>().seek_time;
+    let current_time = world
+        .resource::<jackdaw_animation::TimelineCursor>()
+        .seek_time;
 
     let new_time = if home {
         0.0
@@ -986,7 +1002,9 @@ fn handle_keyframe_paste(world: &mut World) {
     let Some(clip_entity) = world.resource::<jackdaw_animation::SelectedClip>().0 else {
         return;
     };
-    let cursor_time = world.resource::<jackdaw_animation::TimelineCursor>().seek_time;
+    let cursor_time = world
+        .resource::<jackdaw_animation::TimelineCursor>()
+        .seek_time;
 
     // Resolve each entry's target track by property address. Collect
     // the list of tracks under the clip once up front.

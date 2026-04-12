@@ -33,7 +33,10 @@ pub struct GraphCanvasView {
 
 impl Default for GraphCanvasView {
     fn default() -> Self {
-        Self { offset: Vec2::ZERO, zoom: 1.0 }
+        Self {
+            offset: Vec2::ZERO,
+            zoom: 1.0,
+        }
     }
 }
 

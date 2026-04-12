@@ -106,9 +106,7 @@ pub struct OutputNode;
 /// canvas spawns a new node via `AddGraphNodeCmd`, it also spawns
 /// these components on the data entity, and the existing inspector
 /// reflect-field UI picks them up for inline parameter editing.
-pub fn register_animation_node_types(
-    mut registry: ResMut<jackdaw_node_graph::NodeTypeRegistry>,
-) {
+pub fn register_animation_node_types(mut registry: ResMut<jackdaw_node_graph::NodeTypeRegistry>) {
     use jackdaw_node_graph::{NodeTypeDescriptor, TerminalDescriptor};
 
     const POSE: &str = "anim.pose";

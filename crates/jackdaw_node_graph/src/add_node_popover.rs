@@ -139,26 +139,25 @@ pub fn spawn_popover(
     ));
 
     // Title bar.
-    commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-                border: UiRect::bottom(Val::Px(1.0)),
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+            border: UiRect::bottom(Val::Px(1.0)),
+            ..default()
+        },
+        BorderColor::all(POPOVER_BORDER),
+        BackgroundColor(HEADER_BG),
+        ChildOf(popover_entity),
+        children![(
+            Text::new("Add Node"),
+            TextFont {
+                font_size: 12.0,
                 ..default()
             },
-            BorderColor::all(POPOVER_BORDER),
-            BackgroundColor(HEADER_BG),
-            ChildOf(popover_entity),
-            children![(
-                Text::new("Add Node"),
-                TextFont {
-                    font_size: 12.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.88, 0.89, 0.92)),
-            )],
-        ));
+            TextColor(Color::srgb(0.88, 0.89, 0.92)),
+        )],
+    ));
 
     // Scrollable list of categories + entries.
     let list = commands
@@ -178,23 +177,22 @@ pub fn spawn_popover(
 
     for (category, entries) in registry.by_category() {
         // Category header.
-        commands
-            .spawn((
-                Node {
-                    width: Val::Percent(100.0),
-                    padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(6.0), Val::Px(2.0)),
+        commands.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                padding: UiRect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(6.0), Val::Px(2.0)),
+                ..default()
+            },
+            ChildOf(list),
+            children![(
+                Text::new(category.to_uppercase()),
+                TextFont {
+                    font_size: 10.0,
                     ..default()
                 },
-                ChildOf(list),
-                children![(
-                    Text::new(category.to_uppercase()),
-                    TextFont {
-                        font_size: 10.0,
-                        ..default()
-                    },
-                    TextColor(HEADER_TEXT),
-                )],
-            ));
+                TextColor(HEADER_TEXT),
+            )],
+        ));
 
         // Category entries.
         for desc in entries {
@@ -313,7 +311,9 @@ pub fn on_entry_click(
 
     commands.queue(move |world: &mut World| {
         let cmd = Box::new(AddGraphNodeCmd::new(graph, node_type, position));
-        let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+        let mut history = world
+            .remove_resource::<CommandHistory>()
+            .unwrap_or_default();
         history.execute(cmd, world);
         world.insert_resource(history);
 
@@ -452,4 +452,3 @@ fn cursor_to_canvas_space(
     }
     cursor
 }
-

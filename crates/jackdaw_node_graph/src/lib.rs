@@ -32,9 +32,7 @@ pub use commands::{
     AddGraphNodeCmd, CreateConnectionCmd, MoveGraphNodesCmd, RemoveConnectionCmd,
     RemoveGraphNodesCmd,
 };
-pub use connection::{
-    GhostConnection, PendingRemove, TerminalAnchor, update_connection_endpoints,
-};
+pub use connection::{GhostConnection, PendingRemove, TerminalAnchor, update_connection_endpoints};
 pub use gesture::{ConnectionAnchor, GraphGesture};
 pub use graph::{
     Connection, GraphCanvasView, GraphNode, GraphNodeSelected, NodeGraph, Terminal,

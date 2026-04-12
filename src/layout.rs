@@ -127,7 +127,6 @@ pub struct DockSidebarIcon(pub DockWindowKind);
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub struct DockBody(pub DockWindowKind);
 
-
 /// Marker on the hierarchy filter text input
 #[derive(Component)]
 pub struct HierarchyFilter;
@@ -1489,7 +1488,6 @@ pub fn update_active_document_display(
     }
 }
 
-
 /// Click observer on dock sidebar icons — sets
 /// [`ActiveDockWindow`] to whatever kind the clicked icon
 /// represents. Runs as a global observer via `add_observer`; the
@@ -1703,11 +1701,7 @@ fn dock_window_sidebar(icon_font: Handle<Font>) -> impl Bundle {
 /// consumed by [`update_dock_body_visibility`] and
 /// [`update_dock_sidebar_highlights`] to swap the body and restyle
 /// the sidebar respectively.
-fn dock_sidebar_icon(
-    kind: DockWindowKind,
-    icon: Icon,
-    icon_font: Handle<Font>,
-) -> impl Bundle {
+fn dock_sidebar_icon(kind: DockWindowKind, icon: Icon, icon_font: Handle<Font>) -> impl Bundle {
     (
         DockSidebarIcon(kind),
         Interaction::default(),

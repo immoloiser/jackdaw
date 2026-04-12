@@ -286,10 +286,7 @@ fn spawn_blend_graph_body(commands: &mut Commands, parent: Entity, clip_entity: 
         ))
         .id();
     let canvas_root = commands
-        .spawn((
-            jackdaw_node_graph::canvas(clip_entity),
-            ChildOf(wrapper),
-        ))
+        .spawn((jackdaw_node_graph::canvas(clip_entity), ChildOf(wrapper)))
         .id();
     commands
         .spawn(jackdaw_node_graph::canvas_world(clip_entity))
@@ -594,12 +591,7 @@ fn spawn_body(
 /// Spawn time labels + vertical gridlines at a "nice" interval so the
 /// user can see where they are in the clip at a glance. The interval
 /// is picked so there are roughly 4–10 ticks across the visible range.
-fn spawn_ruler_ticks(
-    commands: &mut Commands,
-    ruler: Entity,
-    timeline_col: Entity,
-    duration: f32,
-) {
+fn spawn_ruler_ticks(commands: &mut Commands, ruler: Entity, timeline_col: Entity, duration: f32) {
     if duration <= 0.0 {
         return;
     }
@@ -664,9 +656,7 @@ fn spawn_ruler_ticks(
 /// playhead visibly snaps from tick to tick as the user holds an
 /// arrow key.
 pub fn pick_tick_step(duration: f32) -> f32 {
-    const CANDIDATES: &[f32] = &[
-        0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0,
-    ];
+    const CANDIDATES: &[f32] = &[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
     for &step in CANDIDATES {
         if duration / step <= 10.0 {
             return step;
@@ -908,11 +898,11 @@ pub fn handle_add_keyframe_click(
             warn!("Add keyframe: target has no Transform component");
             return;
         };
-        match (track.component_type_path.as_str(), track.field_path.as_str()) {
-            (
-                "bevy_transform::components::transform::Transform",
-                "translation",
-            ) => {
+        match (
+            track.component_type_path.as_str(),
+            track.field_path.as_str(),
+        ) {
+            ("bevy_transform::components::transform::Transform", "translation") => {
                 world.spawn((
                     Vec3Keyframe {
                         time: cursor_time,
@@ -921,10 +911,7 @@ pub fn handle_add_keyframe_click(
                     ChildOf(track_entity),
                 ));
             }
-            (
-                "bevy_transform::components::transform::Transform",
-                "rotation",
-            ) => {
+            ("bevy_transform::components::transform::Transform", "rotation") => {
                 world.spawn((
                     QuatKeyframe {
                         time: cursor_time,
@@ -933,10 +920,7 @@ pub fn handle_add_keyframe_click(
                     ChildOf(track_entity),
                 ));
             }
-            (
-                "bevy_transform::components::transform::Transform",
-                "scale",
-            ) => {
+            ("bevy_transform::components::transform::Transform", "scale") => {
                 world.spawn((
                     Vec3Keyframe {
                         time: cursor_time,
@@ -1264,7 +1248,11 @@ fn all_keyframes_for_clip(
 pub fn update_keyframe_highlight(
     selected: Res<SelectedKeyframes>,
     hint: Res<TimelineSnapHint>,
-    mut handles: Query<(&TimelineKeyframeHandle, &mut BackgroundColor, &mut BorderColor)>,
+    mut handles: Query<(
+        &TimelineKeyframeHandle,
+        &mut BackgroundColor,
+        &mut BorderColor,
+    )>,
 ) {
     for (handle, mut bg, mut border) in &mut handles {
         if selected.is_selected(handle.keyframe) {
@@ -1282,4 +1270,3 @@ pub fn update_keyframe_highlight(
         }
     }
 }
-

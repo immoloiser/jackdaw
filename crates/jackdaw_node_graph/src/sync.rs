@@ -170,27 +170,29 @@ pub fn spawn_connection_ui_for_new(
     mut materials: ResMut<Assets<ConnectionMaterial>>,
     mut commands: Commands,
 ) {
-    let spawn_wire =
-        |conn_entity: Entity, viewport_entity: Entity, materials: &mut Assets<ConnectionMaterial>, commands: &mut Commands| {
-            let material = materials.add(ConnectionMaterial::default());
-            commands
-                .spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        ..default()
-                    },
-                    MaterialNode(material),
-                    ConnectionView {
-                        connection: conn_entity,
-                    },
-                    Pickable::IGNORE,
-                ))
-                .insert(ChildOf(viewport_entity));
-        };
+    let spawn_wire = |conn_entity: Entity,
+                      viewport_entity: Entity,
+                      materials: &mut Assets<ConnectionMaterial>,
+                      commands: &mut Commands| {
+        let material = materials.add(ConnectionMaterial::default());
+        commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                MaterialNode(material),
+                ConnectionView {
+                    connection: conn_entity,
+                },
+                Pickable::IGNORE,
+            ))
+            .insert(ChildOf(viewport_entity));
+    };
 
     // Path A: new Connection data entity.
     for (conn_entity, parent) in added.iter() {

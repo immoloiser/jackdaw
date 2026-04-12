@@ -128,7 +128,10 @@ pub fn on_node_drag(
     if event.button != PointerButton::Primary {
         return;
     }
-    let GraphGesture::MoveNodes { start_positions, .. } = &*gesture else {
+    let GraphGesture::MoveNodes {
+        start_positions, ..
+    } = &*gesture
+    else {
         return;
     };
 
@@ -159,7 +162,10 @@ pub fn on_node_drag_end(
     }
 
     let previous = std::mem::replace(&mut *gesture, GraphGesture::Idle);
-    let GraphGesture::MoveNodes { start_positions, .. } = previous else {
+    let GraphGesture::MoveNodes {
+        start_positions, ..
+    } = previous
+    else {
         return;
     };
 
@@ -185,7 +191,9 @@ pub fn on_node_drag_end(
     // for redo.
     commands.queue(move |world: &mut World| {
         let cmd = Box::new(MoveGraphNodesCmd { moves });
-        let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+        let mut history = world
+            .remove_resource::<CommandHistory>()
+            .unwrap_or_default();
         history.execute(cmd, world);
         world.insert_resource(history);
     });
@@ -323,7 +331,9 @@ pub fn on_terminal_drag_end(
             target_node,
             target_terminal_idx,
         ));
-        let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+        let mut history = world
+            .remove_resource::<CommandHistory>()
+            .unwrap_or_default();
         history.execute(cmd, world);
         world.insert_resource(history);
     });
@@ -332,10 +342,7 @@ pub fn on_terminal_drag_end(
 /// Swallow plain clicks on terminals so they don't bubble up to
 /// `on_node_click` (which would select the owning node when the user meant
 /// to interact with the terminal).
-pub fn on_terminal_click(
-    mut event: On<Pointer<Click>>,
-    terminals: Query<&GraphTerminalView>,
-) {
+pub fn on_terminal_click(mut event: On<Pointer<Click>>, terminals: Query<&GraphTerminalView>) {
     if event.button != PointerButton::Primary {
         return;
     }
@@ -376,9 +383,7 @@ pub fn on_terminal_alt_click(
         .filter_map(|(entity, conn, parent)| {
             let graph = parent.map(|p| p.get())?;
             let matches = match direction {
-                TerminalDirection::Input => {
-                    conn.target_node == node && conn.target_terminal == idx
-                }
+                TerminalDirection::Input => conn.target_node == node && conn.target_terminal == idx,
                 TerminalDirection::Output => {
                     conn.source_node == node && conn.source_terminal == idx
                 }
@@ -435,7 +440,9 @@ pub fn handle_delete_key(
 
     commands.queue(move |world: &mut World| {
         let cmd = Box::new(RemoveGraphNodesCmd::new(graph, entities));
-        let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+        let mut history = world
+            .remove_resource::<CommandHistory>()
+            .unwrap_or_default();
         history.execute(cmd, world);
         world.insert_resource(history);
 
@@ -456,21 +463,23 @@ pub fn handle_undo_redo_keys(keys: Res<ButtonInput<KeyCode>>, mut commands: Comm
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     let want_undo = keys.just_pressed(KeyCode::KeyZ) && !shift;
-    let want_redo = (keys.just_pressed(KeyCode::KeyZ) && shift)
-        || keys.just_pressed(KeyCode::KeyY);
+    let want_redo = (keys.just_pressed(KeyCode::KeyZ) && shift) || keys.just_pressed(KeyCode::KeyY);
 
     if want_undo {
         commands.queue(|world: &mut World| {
-            let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+            let mut history = world
+                .remove_resource::<CommandHistory>()
+                .unwrap_or_default();
             history.undo(world);
             world.insert_resource(history);
         });
     } else if want_redo {
         commands.queue(|world: &mut World| {
-            let mut history = world.remove_resource::<CommandHistory>().unwrap_or_default();
+            let mut history = world
+                .remove_resource::<CommandHistory>()
+                .unwrap_or_default();
             history.redo(world);
             world.insert_resource(history);
         });
     }
 }
-

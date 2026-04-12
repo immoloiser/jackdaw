@@ -157,9 +157,7 @@ impl Default for Clip {
 /// for smooth Transform animation; `Step` is for discrete values like
 /// booleans, enums, or "portal-jump" Vec3 positions that should snap
 /// between keyframes rather than blend.
-#[derive(
-    Reflect, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Hash,
-)]
+#[derive(Reflect, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum Interpolation {
     /// Linear blend between adjacent keyframes via Bevy's
     /// `Animatable::interpolate`. Works for `Vec3`, `Quat`, `f32`, and
@@ -197,10 +195,7 @@ pub struct AnimationTrack {
 
 impl AnimationTrack {
     /// Convenience constructor — most call sites want `Linear` interp.
-    pub fn new(
-        component_type_path: impl Into<String>,
-        field_path: impl Into<String>,
-    ) -> Self {
+    pub fn new(component_type_path: impl Into<String>, field_path: impl Into<String>) -> Self {
         Self {
             component_type_path: component_type_path.into(),
             field_path: field_path.into(),

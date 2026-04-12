@@ -45,7 +45,11 @@ pub struct NodeTypeDescriptor {
 
 impl NodeTypeDescriptor {
     /// Look up a terminal descriptor by direction + index.
-    pub fn terminal(&self, direction: TerminalDirection, index: u32) -> Option<&TerminalDescriptor> {
+    pub fn terminal(
+        &self,
+        direction: TerminalDirection,
+        index: u32,
+    ) -> Option<&TerminalDescriptor> {
         let idx = index as usize;
         match direction {
             TerminalDirection::Input => self.inputs.get(idx),
