@@ -303,7 +303,7 @@ fn save_scene_inner(world: &mut World) {
     save_layout_to_project(world);
 }
 
-fn save_layout_to_project(world: &mut World) {
+pub fn save_layout_to_project(world: &mut World) {
     let Some(root) = world
         .get_resource::<crate::project::ProjectRoot>()
         .map(|p| p.root.clone())
@@ -311,11 +311,12 @@ fn save_layout_to_project(world: &mut World) {
         return;
     };
 
-    let layout = jackdaw_panels::layout::capture_layout_state(world);
-    let layout_json = match serde_json::to_value(&layout) {
+    // Serialize the DockTree directly so splits + fractions persist.
+    let tree = world.resource::<jackdaw_panels::tree::DockTree>().clone();
+    let layout_json = match serde_json::to_value(&tree) {
         Ok(v) => v,
         Err(e) => {
-            warn!("Failed to serialize layout: {e}");
+            warn!("Failed to serialize layout tree: {e}");
             return;
         }
     };

@@ -223,6 +223,8 @@ fn handle_panel_drag(
     mut drag: On<Pointer<Drag>>,
     handles: Query<&ChildOf, With<PanelHandle>>,
     groups: Query<(&PanelGroup, &Node, &ComputedNode, &Children)>,
+    bindings: Query<&crate::reconcile::NodeBinding>,
+    mut tree: ResMut<crate::tree::DockTree>,
     mut panels: Query<&mut Panel>,
 ) {
     let handle_entity = drag.event_target();
@@ -271,6 +273,15 @@ fn handle_panel_drag(
 
     before.ratio = new_before;
     after.ratio = new_after;
+
+    // If this PanelGroup is bound to a tree split, mirror the new fraction
+    // into the tree so saved layouts and the reconciler stay in sync.
+    if let Ok(binding) = bindings.get(parent) {
+        let total = new_before + new_after;
+        if total > 0.0 {
+            tree.set_fraction(binding.0, new_before / total);
+        }
+    }
 
     drag.propagate(false);
 }

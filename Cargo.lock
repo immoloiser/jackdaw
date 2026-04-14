@@ -4435,6 +4435,7 @@ dependencies = [
  "jackdaw_feathers",
  "lucide-icons",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

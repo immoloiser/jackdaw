@@ -401,6 +401,10 @@ fn left_column() -> impl Bundle {
 
 fn left_top_dock_area() -> impl Bundle {
     (
+        jackdaw_panels::reconcile::AnchorHost {
+            anchor_id: "left_top".into(),
+            default_style: jackdaw_panels::DockAreaStyle::TabBar,
+        },
         jackdaw_panels::DockArea {
             id: "left_top".into(),
             style: jackdaw_panels::DockAreaStyle::TabBar,
@@ -420,6 +424,10 @@ fn left_top_dock_area() -> impl Bundle {
 
 fn left_bottom_dock_area() -> impl Bundle {
     (
+        jackdaw_panels::reconcile::AnchorHost {
+            anchor_id: "left_bottom".into(),
+            default_style: jackdaw_panels::DockAreaStyle::TabBar,
+        },
         jackdaw_panels::DockArea {
             id: "left_bottom".into(),
             style: jackdaw_panels::DockAreaStyle::TabBar,
@@ -1417,6 +1425,10 @@ pub fn update_tab_strip_highlights(
 
 fn bottom_dock_area() -> impl Bundle {
     (
+        jackdaw_panels::reconcile::AnchorHost {
+            anchor_id: "bottom_dock".into(),
+            default_style: jackdaw_panels::DockAreaStyle::IconSidebar,
+        },
         jackdaw_panels::DockArea {
             id: "bottom_dock".into(),
             style: jackdaw_panels::DockAreaStyle::IconSidebar,
@@ -1496,6 +1508,10 @@ fn editor_status_bar() -> impl Bundle {
 
 fn right_dock_area() -> impl Bundle {
     (
+        jackdaw_panels::reconcile::AnchorHost {
+            anchor_id: "right_sidebar".into(),
+            default_style: jackdaw_panels::DockAreaStyle::TabBar,
+        },
         jackdaw_panels::DockArea {
             id: "right_sidebar".into(),
             style: jackdaw_panels::DockAreaStyle::TabBar,

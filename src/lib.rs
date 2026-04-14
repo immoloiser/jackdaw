@@ -162,7 +162,13 @@ impl Plugin for EditorPlugin {
             .init_resource::<jackdaw_jsn::SceneJsnAst>()
             .add_systems(
                 OnEnter(AppState::Editor),
-                (spawn_layout, populate_menu, apply_saved_layout).chain(),
+                (
+                    spawn_layout,
+                    jackdaw_panels::reconcile::run_initial_reconcile,
+                    populate_menu,
+                    apply_saved_layout,
+                )
+                    .chain(),
             )
             .add_systems(OnExit(AppState::Editor), cleanup_editor)
             .add_systems(
@@ -183,6 +189,7 @@ impl Plugin for EditorPlugin {
                     sync_selected_keyframes_from_selection,
                     handle_keyframe_delete_intercept.before(entity_ops::handle_entity_keys),
                     handle_timeline_shortcuts.before(entity_ops::handle_entity_keys),
+                    auto_save_layout_on_change,
                 )
                     .run_if(in_state(AppState::Editor)),
             )
@@ -1916,11 +1923,22 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
                 _ => None,
             };
             if let Some(id) = window_id {
+                let id = id.to_string();
                 commands.queue(move |world: &mut World| {
-                    let mut areas =
-                        world.query::<&mut jackdaw_panels::ActiveDockWindow>();
-                    for mut active in areas.iter_mut(world) {
-                        active.0 = Some(id.to_string());
+                    let leaf_id = world
+                        .resource::<jackdaw_panels::tree::DockTree>()
+                        .anchor("left_top");
+                    let Some(leaf_id) = leaf_id else {
+                        return;
+                    };
+                    let mut tree = world.resource_mut::<jackdaw_panels::tree::DockTree>();
+                    if let Some(jackdaw_panels::tree::DockNode::Leaf(leaf)) =
+                        tree.get_mut(leaf_id)
+                    {
+                        if !leaf.windows.iter().any(|w| w == &id) {
+                            leaf.windows.push(id.clone());
+                        }
+                        leaf.active = Some(id);
                     }
                 });
             }
@@ -2197,14 +2215,60 @@ fn on_workspace_changed(
     }
 }
 
+#[derive(Resource, Default)]
+struct LayoutAutoSaveState {
+    pending_since: Option<f64>,
+}
+
+fn auto_save_layout_on_change(
+    mut commands: Commands,
+    mut state: Local<LayoutAutoSaveState>,
+    time: Res<Time>,
+    panels_changed: Query<Entity, Changed<jackdaw_panels::Panel>>,
+    active_changed: Query<Entity, Changed<jackdaw_panels::ActiveDockWindow>>,
+    area_added: Query<Entity, Added<jackdaw_panels::DockArea>>,
+    mut removed: RemovedComponents<jackdaw_panels::DockArea>,
+) {
+    let now = time.elapsed_secs_f64();
+
+    let any_change = !panels_changed.is_empty()
+        || !active_changed.is_empty()
+        || !area_added.is_empty()
+        || removed.read().next().is_some();
+
+    if any_change {
+        state.pending_since = Some(now);
+    }
+
+    // Debounce: wait 0.5s of no changes before writing.
+    if let Some(since) = state.pending_since {
+        if now - since >= 0.5 {
+            state.pending_since = None;
+            commands.queue(|world: &mut World| {
+                scene_io::save_layout_to_project(world);
+            });
+        }
+    }
+}
+
 fn apply_saved_layout(mut commands: Commands) {
-    // Defer application — DockAreas need to be fully populated first, which
-    // happens via observers during the next Update cycle.
     commands.queue(|world: &mut World| {
-        let Some(layout_json) = world
+        // Try the new tree-format first, fall back to legacy LayoutState.
+        let layout_json = world
             .get_resource::<crate::project::ProjectRoot>()
-            .and_then(|p| p.config.project.layout.clone())
-        else {
+            .and_then(|p| p.config.project.layout.clone());
+
+        if let Some(json) = layout_json.clone() {
+            if let Ok(tree) = serde_json::from_value::<jackdaw_panels::tree::DockTree>(json) {
+                world.insert_resource(tree);
+                jackdaw_panels::reconcile::run_initial_reconcile(world);
+                info!("Applied saved DockTree layout");
+                return;
+            }
+        }
+
+        // Legacy LayoutState fallback (active window + Panel ratios).
+        let Some(layout_json) = layout_json else {
             return;
         };
 
@@ -2216,7 +2280,6 @@ fn apply_saved_layout(mut commands: Commands) {
             }
         };
 
-        // Apply active window and panel ratio for each area with a saved state.
         let mut area_query = world.query::<(Entity, &jackdaw_panels::DockArea)>();
         let areas: Vec<(Entity, String)> = area_query
             .iter(world)
@@ -2229,25 +2292,13 @@ fn apply_saved_layout(mut commands: Commands) {
             };
 
             if let Some(active) = &state.active {
-                if let Some(mut active_dock) = world
-                    .entity_mut(area_entity)
-                    .get_mut::<jackdaw_panels::ActiveDockWindow>()
-                {
-                    active_dock.0 = Some(active.clone());
-                }
-
-                // Toggle content display to match active
-                let mut content_query = world
-                    .query::<(Entity, &jackdaw_panels::DockTabContent, &ChildOf)>();
-                let to_update: Vec<(Entity, bool)> = content_query
-                    .iter(world)
-                    .filter(|(_, _, co)| co.parent() == area_entity)
-                    .map(|(e, c, _)| (e, &c.window_id == active))
-                    .collect();
-                for (entity, is_active) in to_update {
-                    if let Some(mut node) = world.entity_mut(entity).get_mut::<Node>() {
-                        node.display = if is_active { Display::Flex } else { Display::None };
-                    }
+                let leaf_id = world
+                    .resource::<jackdaw_panels::tree::DockTree>()
+                    .anchor(&area_id);
+                if let Some(leaf) = leaf_id {
+                    world
+                        .resource_mut::<jackdaw_panels::tree::DockTree>()
+                        .set_active(leaf, active);
                 }
             }
 

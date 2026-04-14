@@ -3,8 +3,10 @@ use bevy::ui::UiGlobalTransform;
 use jackdaw_feathers::tokens;
 
 use crate::area::{DockArea, DockTab};
+use crate::reconcile::NodeBinding;
 use crate::sidebar::DockSidebarIcon;
 use crate::tabs::DockTabGrip;
+use crate::tree::{DockTree, Edge as TreeEdge};
 
 const DRAG_THRESHOLD: f32 = 5.0;
 
@@ -386,7 +388,7 @@ fn on_drag_end(
                             );
                             let wid = window_id.clone();
                             commands.queue(move |world: &mut World| {
-                                move_window_to_area(world, &wid, source_area, target_area);
+                                drop_on_area(world, &wid, target_area);
                             });
                         }
                     }
@@ -396,9 +398,8 @@ fn on_drag_end(
                             area, edge, window_id
                         );
                         let wid = window_id.clone();
-                        let src = source_area;
                         commands.queue(move |world: &mut World| {
-                            split_area_with_window(world, area, edge, &wid, src);
+                            drop_on_edge(world, &wid, area, edge);
                         });
                     }
                 }
@@ -436,350 +437,39 @@ fn cancel_drag_on_escape(
     *drag_state = DockDragState::Idle;
 }
 
-fn move_window_to_area(world: &mut World, window_id: &str, source_area: Entity, target_area: Entity) {
-    // 1. Find and remove the tab from the source area's tab row
-    let source_tab_entity = {
-        let mut found = None;
-        let mut query = world.query::<(Entity, &DockTab, &ChildOf)>();
-        for (entity, tab, _) in query.iter(world) {
-            if tab.window_id == window_id {
-                // Check this tab is in the source area's hierarchy
-                let mut current = entity;
-                loop {
-                    if current == source_area {
-                        found = Some(entity);
-                        break;
-                    }
-                    let Some(parent) = world.entity(current).get::<ChildOf>() else {
-                        break;
-                    };
-                    current = parent.parent();
-                }
-                if found.is_some() {
-                    break;
-                }
-            }
-        }
-        found
-    };
-
-    if let Some(tab_entity) = source_tab_entity {
-        world.entity_mut(tab_entity).despawn();
-    }
-
-    // 2. Find and reparent the content entity from source to target area
-    let content_entity = {
-        let mut found = None;
-        let mut query = world.query::<(Entity, &crate::DockTabContent, &ChildOf)>();
-        for (entity, content, child_of) in query.iter(world) {
-            if content.window_id == window_id && child_of.parent() == source_area {
-                found = Some(entity);
-                break;
-            }
-        }
-        found
-    };
-
-    if let Some(content_entity) = content_entity {
-        world
-            .entity_mut(content_entity)
-            .insert(ChildOf(target_area));
-        world.entity_mut(content_entity).insert(Node {
-            flex_grow: 1.0,
-            width: Val::Percent(100.0),
-            min_height: Val::Px(0.0),
-            flex_direction: FlexDirection::Column,
-            overflow: Overflow::clip(),
-            display: Display::None,
-            ..default()
-        });
-    }
-
-    // 3. Add a new tab in the target area's tab row (may be nested: area → tab_bar → tab_row)
-    let target_tab_row = find_tab_row_recursive(world, target_area);
-
-    let window_name = world
-        .get_resource::<crate::WindowRegistry>()
-        .and_then(|r| r.get(window_id))
-        .map(|d| d.name.clone())
-        .unwrap_or_else(|| window_id.to_string());
-
-    if let Some(tab_row) = target_tab_row {
-        crate::tabs::spawn_tab_in_world(world, tab_row, window_id, &window_name, false);
-    }
-
-    // 4. If the source area now has no active window, activate the first remaining one
-    let source_remaining: Vec<String> = {
-        let mut query = world.query::<(&crate::DockTabContent, &ChildOf)>();
-        query
-            .iter(world)
-            .filter(|(_, co)| co.parent() == source_area)
-            .map(|(c, _)| c.window_id.clone())
-            .collect()
-    };
-
-    if let Some(first) = source_remaining.first() {
-        let first_id = first.clone();
-        if let Some(mut active) = world.entity_mut(source_area).get_mut::<crate::ActiveDockWindow>() {
-            if active.0.as_deref() == Some(window_id) {
-                active.0 = Some(first_id.clone());
-            }
-        }
-        // Show the first remaining content
-        let mut query = world.query::<(Entity, &crate::DockTabContent, &ChildOf)>();
-        let to_show: Vec<Entity> = query
-            .iter(world)
-            .filter(|(_, c, co)| co.parent() == source_area && c.window_id == first_id)
-            .map(|(e, _, _)| e)
-            .collect();
-        for entity in to_show {
-            if let Some(mut node) = world.entity_mut(entity).get_mut::<Node>() {
-                node.display = Display::Flex;
-            }
-        }
-    }
-
-    info!("Moved window '{}' from {:?} to {:?}", window_id, source_area, target_area);
-}
-
-fn split_area_with_window(
-    world: &mut World,
-    target_area: Entity,
-    edge: DropEdge,
-    window_id: &str,
-    source_area: Entity,
-) {
-    use crate::split::{Panel, PanelGroup, PanelHandle};
-
-    // 1. Remove the window from its source area (tab + content)
-    let source_tab = {
-        let mut query = world.query::<(Entity, &DockTab, &ChildOf)>();
-        let mut found = None;
-        for (entity, tab, _) in query.iter(world) {
-            if tab.window_id == window_id {
-                let mut current = entity;
-                loop {
-                    if current == source_area {
-                        found = Some(entity);
-                        break;
-                    }
-                    let Some(parent) = world.entity(current).get::<ChildOf>() else {
-                        break;
-                    };
-                    current = parent.parent();
-                }
-                if found.is_some() {
-                    break;
-                }
-            }
-        }
-        found
-    };
-    if let Some(tab) = source_tab {
-        world.entity_mut(tab).despawn();
-    }
-
-    let content_entity = {
-        let mut query = world.query::<(Entity, &crate::DockTabContent, &ChildOf)>();
-        query
-            .iter(world)
-            .find(|(_, c, co)| c.window_id == window_id && co.parent() == source_area)
-            .map(|(e, _, _)| e)
-    };
-    let content_entity = match content_entity {
-        Some(e) => e,
-        None => return,
-    };
-
-    // Activate next tab in source if needed
-    {
-        let remaining: Vec<String> = {
-            let mut query = world.query::<(&crate::DockTabContent, &ChildOf)>();
-            query
-                .iter(world)
-                .filter(|(_, co)| co.parent() == source_area)
-                .filter(|(c, _)| c.window_id != window_id)
-                .map(|(c, _)| c.window_id.clone())
-                .collect()
-        };
-        if let Some(first) = remaining.first() {
-            let first_id = first.clone();
-            if let Some(mut active) = world.entity_mut(source_area).get_mut::<crate::ActiveDockWindow>() {
-                if active.0.as_deref() == Some(window_id) {
-                    active.0 = Some(first_id.clone());
-                }
-            }
-            let mut query = world.query::<(Entity, &crate::DockTabContent, &ChildOf)>();
-            let to_show: Vec<Entity> = query
-                .iter(world)
-                .filter(|(_, c, co)| co.parent() == source_area && c.window_id == first_id)
-                .map(|(e, _, _)| e)
-                .collect();
-            for entity in to_show {
-                if let Some(mut node) = world.entity_mut(entity).get_mut::<Node>() {
-                    node.display = Display::Flex;
-                }
-            }
-        }
-    }
-
-    // 2. Detach content from source
-    world.entity_mut(content_entity).remove::<ChildOf>();
-
-    // 3. Capture target's original parent, index in parent's children, and Panel ratio.
-    let target_parent = world
+/// Move `window_id` into the leaf bound to `target_area`.
+fn drop_on_area(world: &mut World, window_id: &str, target_area: Entity) {
+    let Some(binding) = world
         .entity(target_area)
-        .get::<ChildOf>()
-        .map(|co| co.parent());
-    let target_index = target_parent.and_then(|parent| {
-        world
-            .entity(parent)
-            .get::<Children>()
-            .and_then(|ch| ch.iter().position(|e| e == target_area))
-    });
-    let ratio = world
-        .entity(target_area)
-        .get::<Panel>()
-        .map(|p| p.ratio)
-        .unwrap_or(1.0);
-
-    // Detach target from its parent and clear its outer Panel ratio.
-    // target_area will become a child of the wrapper with Panel { ratio: 1.0 }.
-    world.entity_mut(target_area).remove::<Panel>();
-    world.entity_mut(target_area).remove::<ChildOf>();
-
-    // 4. Determine split direction.
-    let flex_direction = match edge {
-        DropEdge::Top | DropEdge::Bottom => FlexDirection::Column,
-        DropEdge::Left | DropEdge::Right => FlexDirection::Row,
+        .get::<NodeBinding>()
+        .copied()
+    else {
+        return;
     };
-
-    // 5. Spawn wrapper PanelGroup with the ratio target_area originally held.
-    let wrapper = world
-        .spawn((
-            PanelGroup { min_ratio: 0.15 },
-            Panel { ratio },
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction,
-                ..default()
-            },
-        ))
-        .id();
-
-    // 6. Insert wrapper at target's original slot in the parent's children list.
-    if let (Some(parent), Some(index)) = (target_parent, target_index) {
-        world
-            .entity_mut(parent)
-            .insert_children(index, &[wrapper]);
-    }
-
-    // 7. Create the new DockArea for the dropped window.
-    let window_name = world
-        .get_resource::<crate::WindowRegistry>()
-        .and_then(|r| r.get(window_id))
-        .map(|d| d.name.clone())
-        .unwrap_or_else(|| window_id.to_string());
-
-    let new_area = world
-        .spawn((
-            DockArea {
-                id: format!("split_{}", window_id),
-                style: crate::DockAreaStyle::TabBar,
-            },
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                overflow: Overflow::clip(),
-                border_radius: BorderRadius::all(Val::Px(5.0)),
-                ..default()
-            },
-            BackgroundColor(tokens::PANEL_BG),
-        ))
-        .id();
-
-    // 8. Spawn a tab bar for the new area with just the dropped window as its only tab.
-    //    populate_dock_areas normally handles this at startup by reading the
-    //    WindowRegistry, but runtime-split areas have a synthetic id not in the
-    //    registry, so we spawn the tab bar inline here.
-    crate::tabs::spawn_tab_bar_world(
-        world,
-        new_area,
-        &[(window_id.to_string(), window_name.clone())],
-    );
     world
-        .entity_mut(new_area)
-        .insert(crate::ActiveDockWindow(Some(window_id.to_string())));
-
-    // 9. Reparent the moved content to the new area.
-    world.entity_mut(content_entity).insert(ChildOf(new_area));
-    world.entity_mut(content_entity).insert(Node {
-        flex_grow: 1.0,
-        width: Val::Percent(100.0),
-        min_height: Val::Px(0.0),
-        flex_direction: FlexDirection::Column,
-        overflow: Overflow::clip(),
-        display: Display::Flex,
-        ..default()
-    });
-
-    // 10. Create panel handle.
-    let handle = world
-        .spawn((
-            PanelHandle,
-            Node {
-                min_width: Val::Px(3.0),
-                min_height: Val::Px(3.0),
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-        ))
-        .id();
-
-    // 11. Existing area keeps the bulk of the space; the dropped window gets ~26%.
-    //     This matches VS Code / Dockview conventions — dropping a panel shouldn't
-    //     cut the existing content in half.
-    world.entity_mut(target_area).insert(Panel { ratio: 1.0 });
-    world.entity_mut(new_area).insert(Panel { ratio: 0.35 });
-
-    // 12. Add all three children to the wrapper in one ordered call.
-    //     For Top/Left, the new area goes first; for Bottom/Right, it goes last.
-    match edge {
-        DropEdge::Top | DropEdge::Left => {
-            world
-                .entity_mut(wrapper)
-                .add_children(&[new_area, handle, target_area]);
-        }
-        DropEdge::Bottom | DropEdge::Right => {
-            world
-                .entity_mut(wrapper)
-                .add_children(&[target_area, handle, new_area]);
-        }
-    }
-
-    info!(
-        "Split complete: created new area for '{}' at {:?} of {:?}",
-        window_name, edge, target_area
-    );
+        .resource_mut::<DockTree>()
+        .move_window(window_id, binding.0);
 }
 
-fn find_tab_row_recursive(world: &World, root: Entity) -> Option<Entity> {
-    if world.entity(root).contains::<crate::tabs::DockTabRow>() {
-        return Some(root);
-    }
-    let children: Vec<Entity> = world
-        .entity(root)
-        .get::<Children>()
-        .map(|c| c.iter().collect())
-        .unwrap_or_default();
-    for child in children {
-        if let Some(found) = find_tab_row_recursive(world, child) {
-            return Some(found);
-        }
-    }
-    None
+/// Split the leaf bound to `target_area` along `edge` and place
+/// `window_id` into the new sibling.
+fn drop_on_edge(world: &mut World, window_id: &str, target_area: Entity, edge: DropEdge) {
+    let Some(binding) = world
+        .entity(target_area)
+        .get::<NodeBinding>()
+        .copied()
+    else {
+        return;
+    };
+    let tree_edge = match edge {
+        DropEdge::Top => TreeEdge::Top,
+        DropEdge::Bottom => TreeEdge::Bottom,
+        DropEdge::Left => TreeEdge::Left,
+        DropEdge::Right => TreeEdge::Right,
+    };
+    let mut tree = world.resource_mut::<DockTree>();
+    tree.remove_window(window_id);
+    tree.split(binding.0, tree_edge, window_id.to_string());
 }
 
 fn find_parent_area(

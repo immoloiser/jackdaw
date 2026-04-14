@@ -1,7 +1,9 @@
+use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use jackdaw_feathers::tokens;
 
-use crate::area::{ActiveDockWindow, DockTabContent};
+use crate::reconcile::LeafBinding;
+use crate::tree::DockTree;
 
 #[derive(Component)]
 pub struct DockSidebarContainer;
@@ -102,86 +104,53 @@ pub fn spawn_icon_sidebar_world(
         ));
     }
 
-    world
-        .entity_mut(area_entity)
-        .insert(ActiveDockWindow(first_id));
+    let _ = first_id; // ActiveDockWindow is set by reconcile::materialize_area
 }
 
 pub fn handle_sidebar_icon_clicks(
-    icon_query: Query<(Entity, &DockSidebarIcon, &Interaction, &ChildOf), Changed<Interaction>>,
-    all_icons: Query<(Entity, &DockSidebarIcon, &ChildOf)>,
-    mut area_query: Query<&mut ActiveDockWindow>,
-    content_query: Query<(Entity, &DockTabContent, &ChildOf)>,
-    mut node_query: Query<&mut Node>,
-    mut border_query: Query<&mut BorderColor>,
-    children_query: Query<&Children>,
-    mut text_color_query: Query<&mut TextColor>,
+    icon_query: Query<(&DockSidebarIcon, &Interaction, &ChildOf), Changed<Interaction>>,
     parent_query: Query<&ChildOf>,
+    bindings: Query<&LeafBinding>,
+    mut tree: ResMut<DockTree>,
 ) {
-    for (_entity, icon, interaction, icon_parent) in icon_query.iter() {
+    for (icon, interaction, icon_parent) in icon_query.iter() {
         if *interaction != Interaction::Pressed {
             continue;
         }
 
-        let new_id = &icon.window_id;
-        let icon_group_entity = icon_parent.parent();
-
-        let Ok(sidebar_parent) = parent_query.get(icon_group_entity) else {
+        // Walk: icon → icon_group → sidebar → area
+        let icon_group = icon_parent.parent();
+        let Ok(group_parent) = parent_query.get(icon_group) else {
             continue;
         };
-        let sidebar_entity = sidebar_parent.parent();
-
-        let Ok(area_parent) = parent_query.get(sidebar_entity) else {
+        let sidebar = group_parent.parent();
+        let Ok(sidebar_parent) = parent_query.get(sidebar) else {
             continue;
         };
-        let area_entity = area_parent.parent();
+        let area_entity = sidebar_parent.parent();
 
-        let Ok(mut active) = area_query.get_mut(area_entity) else {
+        let Ok(binding) = bindings.get(area_entity) else {
             continue;
         };
 
-        if active.0.as_ref() == Some(new_id) {
-            continue;
-        }
-
-        active.0 = Some(new_id.clone());
-
-        for (icon_entity, sib_icon, sib_parent) in all_icons.iter() {
-            if sib_parent.parent() != icon_group_entity {
-                continue;
-            }
-            let is_active = &sib_icon.window_id == new_id;
-            if let Ok(mut bc) = border_query.get_mut(icon_entity) {
-                *bc = BorderColor::all(if is_active {
-                    tokens::ACCENT_BLUE
-                } else {
-                    Color::NONE
-                });
-            }
-            if let Ok(icon_children) = children_query.get(icon_entity) {
-                for child in icon_children.iter() {
-                    if let Ok(mut tc) = text_color_query.get_mut(child) {
-                        tc.0 = if is_active {
-                            tokens::TEXT_PRIMARY
-                        } else {
-                            tokens::TAB_INACTIVE_TEXT
-                        };
-                    }
-                }
-            }
-        }
-
-        for (content_entity, content, content_parent) in content_query.iter() {
-            if content_parent.parent() != area_entity {
-                continue;
-            }
-            if let Ok(mut node) = node_query.get_mut(content_entity) {
-                node.display = if &content.window_id == new_id {
-                    Display::Flex
-                } else {
-                    Display::None
-                };
-            }
-        }
+        tree.set_active(binding.0, &icon.window_id);
     }
+}
+
+/// Right-click on a sidebar icon closes (removes) that window from its
+/// leaf. Sidebar icons don't have a visible X button, so this is the
+/// equivalent of clicking X on a tab.
+pub fn on_sidebar_icon_right_click(
+    trigger: On<Pointer<Click>>,
+    icons: Query<&DockSidebarIcon>,
+    mut tree: ResMut<DockTree>,
+) {
+    if trigger.event().button != PointerButton::Secondary {
+        return;
+    }
+    let Ok(icon) = icons.get(trigger.event_target()) else {
+        return;
+    };
+    info!("Close sidebar window: {}", icon.window_id);
+    tree.remove_window(&icon.window_id);
 }

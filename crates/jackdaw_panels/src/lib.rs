@@ -2,11 +2,12 @@ pub mod add_window_popup;
 pub mod area;
 pub mod drag;
 pub mod layout;
-pub mod populate;
+pub mod reconcile;
 pub mod registry;
 pub mod sidebar;
 pub mod split;
 pub mod tabs;
+pub mod tree;
 pub mod workspace;
 pub mod workspace_tabs;
 
@@ -33,10 +34,10 @@ impl Plugin for DockPlugin {
             tabs::DockTabPlugin,
             drag::DockDragPlugin,
             add_window_popup::AddWindowPopupPlugin,
+            reconcile::ReconcilePlugin,
         ))
             .init_resource::<WindowRegistry>()
             .init_resource::<WorkspaceRegistry>()
-            .add_observer(populate::on_dock_area_added)
             .add_systems(
                 Update,
                 (
@@ -45,6 +46,7 @@ impl Plugin for DockPlugin {
                     workspace_tabs::handle_workspace_tab_clicks,
                     workspace_tabs::update_workspace_tab_visuals,
                 ),
-            );
+            )
+            .add_observer(sidebar::on_sidebar_icon_right_click);
     }
 }

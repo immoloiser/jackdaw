@@ -1,9 +1,10 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Resource, Clone, Default)]
 pub struct IconFontHandle(pub Handle<Font>);
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DockAreaStyle {
     #[default]
     TabBar,

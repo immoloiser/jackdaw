@@ -3,15 +3,15 @@ use bevy::ui::UiGlobalTransform;
 use jackdaw_feathers::tokens;
 
 use crate::{
-    ActiveDockWindow, DockArea, DockTabContent, DockWindow, WindowRegistry,
-    area::DockTab,
+    DockTabBar, DockTabContent, DockWindow, WindowRegistry,
+    reconcile::LeafBinding,
     tabs::{DockTabAddButton, DockTabRow},
+    tree::{DockNode, DockTree},
 };
 
 #[derive(Component)]
 pub struct AddWindowPopup {
     pub area_entity: Entity,
-    pub area_id: String,
 }
 
 #[derive(Component)]
@@ -39,7 +39,6 @@ fn on_add_button_click(
     buttons: Query<(&DockTabAddButton, &UiGlobalTransform, &ComputedNode)>,
     existing_popups: Query<Entity, With<AddWindowPopup>>,
     registry: Res<WindowRegistry>,
-    areas: Query<(Entity, &DockArea)>,
     existing_windows: Query<(&DockTabContent, &ChildOf)>,
     mut commands: Commands,
 ) {
@@ -52,9 +51,7 @@ fn on_add_button_click(
         commands.entity(popup).despawn();
     }
 
-    let Some((area_entity, _)) = areas.iter().find(|(_, a)| a.id == button.area_id) else {
-        return;
-    };
+    let area_entity = button.area_entity;
 
     let already_in_area: Vec<String> = existing_windows
         .iter()
@@ -93,10 +90,7 @@ fn on_add_button_click(
 
     let popup = commands
         .spawn((
-            AddWindowPopup {
-                area_entity,
-                area_id: button.area_id.clone(),
-            },
+            AddWindowPopup { area_entity },
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(pos.x - 100.0),
@@ -206,17 +200,37 @@ fn add_window_to_area(world: &mut World, window_id: &str, area_entity: Entity) {
         (descriptor.name.clone(), descriptor.build.clone())
     };
 
-    let tab_row = {
-        let children: Option<Vec<Entity>> = world
-            .entity(area_entity)
-            .get::<Children>()
-            .map(|c| c.iter().collect());
-        children.and_then(|entities| {
-            entities
-                .into_iter()
-                .find(|&e| world.entity(e).contains::<crate::tabs::DockTabRow>())
-        })
+    let Some(binding) = world.entity(area_entity).get::<LeafBinding>().copied() else {
+        return;
     };
+
+    {
+        let mut tree = world.resource_mut::<DockTree>();
+        if let Some(DockNode::Leaf(leaf)) = tree.get_mut(binding.0) {
+            if !leaf.windows.iter().any(|w| w == window_id) {
+                leaf.windows.push(window_id.to_string());
+            }
+            leaf.active = Some(window_id.to_string());
+        } else {
+            return;
+        }
+    }
+
+    // Walk: area → DockTabBar → DockTabRow.
+    let tab_row = world
+        .entity(area_entity)
+        .get::<Children>()
+        .and_then(|children| {
+            children
+                .iter()
+                .find(|&e| world.entity(e).contains::<DockTabBar>())
+        })
+        .and_then(|tab_bar| {
+            world
+                .entity(tab_bar)
+                .get::<Children>()
+                .and_then(|c| c.iter().find(|&e| world.entity(e).contains::<DockTabRow>()))
+        });
 
     if let Some(tab_row) = tab_row {
         crate::tabs::spawn_tab_in_world(world, tab_row, window_id, &name, false);
