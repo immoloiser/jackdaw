@@ -48,7 +48,7 @@ impl Plugin for MaterialBrowserPlugin {
                     rescan_material_definitions,
                     save_catalog_if_dirty,
                     apply_material_filter,
-                    update_material_browser_ui,
+                    update_material_browser_ui.after(rescan_material_definitions),
                     update_preview_area,
                     poll_material_browser_folder,
                     poll_texture_slot_pick,
@@ -57,6 +57,7 @@ impl Plugin for MaterialBrowserPlugin {
                 )
                     .run_if(in_state(crate::AppState::Editor)),
             )
+            .add_observer(on_material_grid_added)
             .add_observer(handle_apply_material)
             .add_observer(handle_select_material_preview)
             .add_observer(on_material_param_commit)
@@ -501,6 +502,14 @@ fn scan_material_definitions(world: &mut World) {
     }
 }
 
+fn on_material_grid_added(
+    _trigger: On<Add, MaterialBrowserGrid>,
+    mut state: ResMut<MaterialBrowserState>,
+) {
+    info!("MaterialBrowserGrid added, triggering rescan");
+    state.needs_rescan = true;
+}
+
 fn rescan_material_definitions(world: &mut World) {
     let needs_rescan = world.resource::<MaterialBrowserState>().needs_rescan;
     if !needs_rescan {
@@ -525,6 +534,12 @@ fn rescan_material_definitions(world: &mut World) {
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
         detect_and_create_materials(&assets_dir, &asset_server, &mut materials)
     };
+
+    info!(
+        "Material rescan: found {} materials in {}",
+        detected.len(),
+        assets_dir.display()
+    );
 
     for (name, handle) in detected {
         let catalog_name = format!("@{name}");
@@ -848,8 +863,6 @@ fn update_preview_area(
 
     let has_depth = mat.depth_map.is_some();
 
-    // --- Texture slots section ---
-    // Section header
     commands.spawn((
         Text::new("Textures"),
         TextFont {
@@ -1005,7 +1018,6 @@ fn update_preview_area(
         }
     }
 
-    // --- Parameters section ---
     commands.spawn((
         Text::new("Parameters"),
         TextFont {
@@ -1346,8 +1358,16 @@ fn update_material_browser_ui(
     }
 
     let Ok((grid_entity, grid_children)) = grid_query.single() else {
+        info!(
+            "update_material_browser_ui: no MaterialBrowserGrid entity found, {} entries in registry",
+            registry.entries.len()
+        );
         return;
     };
+    info!(
+        "update_material_browser_ui: rebuilding with {} entries",
+        registry.entries.len()
+    );
 
     if let Some(children) = grid_children {
         for child in children.iter() {

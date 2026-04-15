@@ -61,13 +61,9 @@ impl Plugin for HierarchyPlugin {
         app.init_resource::<ContextMenuState>()
             .init_resource::<PendingTemplateDefaultName>()
             .init_resource::<HierarchyShowAll>()
-            .add_systems(
-                OnEnter(crate::AppState::Editor),
-                (
-                    setup_name_watcher,
-                    rebuild_hierarchy.after(crate::spawn_layout),
-                ),
-            )
+            .add_systems(Startup, setup_tree_node_expanded_watcher)
+            .add_systems(OnEnter(crate::AppState::Editor), setup_name_watcher)
+            .add_observer(rebuild_hierarchy_on_container_added)
             .add_systems(
                 Update,
                 (
@@ -161,8 +157,13 @@ fn spawn_single_tree_row(world: &mut World, source: Entity, parent_container: En
     tree_row_entity
 }
 
-/// Populate the hierarchy tree with root-level entities only (non-recursive).
-/// Children are spawned lazily when parents are expanded.
+fn rebuild_hierarchy_on_container_added(
+    _trigger: On<Add, HierarchyTreeContainer>,
+    mut commands: Commands,
+) {
+    commands.queue(rebuild_hierarchy);
+}
+
 fn rebuild_hierarchy(world: &mut World) {
     let container = world
         .query_filtered::<Entity, With<HierarchyTreeContainer>>()
@@ -320,6 +321,19 @@ fn setup_name_watcher(mut commands: Commands) {
     commands
         .spawn((EditorEntity, NotifyChanged::<Name>::default()))
         .observe(on_name_mutated);
+}
+
+/// Pre-register the `NotifyChanged<TreeNodeExpanded>` hook during
+/// Startup. `bevy_monitors`'s add-hook queues a command that calls
+/// `world.schedule_scope(Update, ...)` the first time any entity with
+/// `NotifyChanged<C>` spawns. If that first spawn happens while `Update`
+/// is already executing (e.g. `reconcile_tree` spawning scene tree rows
+/// on workspace switch), the queued command panics with "Schedule
+/// Update not found". Registering a watcher entity here in Startup
+/// flushes the hook before any `Update` tick runs, so subsequent spawns
+/// take the `DetectingChanges<TreeNodeExpanded>` early-return branch.
+fn setup_tree_node_expanded_watcher(mut commands: Commands) {
+    commands.spawn(NotifyChanged::<TreeNodeExpanded>::default());
 }
 
 /// When an entity's Name is mutated in-place (e.g. via inspector), update the tree row label.

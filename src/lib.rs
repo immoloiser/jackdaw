@@ -146,6 +146,15 @@ impl Plugin for EditorPlugin {
             .add_plugins(physics_tool::PhysicsToolPlugin)
             .add_plugins(jackdaw_node_graph::NodeGraphPlugin)
             .add_plugins(jackdaw_animation::AnimationPlugin)
+            .add_plugins(jackdaw_panels::DockPlugin)
+            .add_systems(
+                Startup,
+                (
+                    register_all_dock_windows,
+                    register_workspaces,
+                    sync_icon_font,
+                ),
+            )
             .configure_sets(
                 Update,
                 EditorInteraction
@@ -155,13 +164,12 @@ impl Plugin for EditorPlugin {
             .insert_resource(UiTheme(create_dark_theme()))
             .init_resource::<layout::ActiveDocument>()
             .init_resource::<layout::SceneViewPreset>()
-            .init_resource::<layout::ActiveDockWindow>()
             .init_resource::<layout::KeybindHelpPopover>()
             .init_resource::<asset_catalog::AssetCatalog>()
             .init_resource::<jackdaw_jsn::SceneJsnAst>()
             .add_systems(
                 OnEnter(AppState::Editor),
-                (spawn_layout, populate_menu).chain(),
+                (spawn_layout, init_layout, populate_menu).chain(),
             )
             .add_systems(OnExit(AppState::Editor), cleanup_editor)
             .add_systems(
@@ -174,8 +182,6 @@ impl Plugin for EditorPlugin {
                     layout::update_edit_tool_highlights,
                     layout::update_active_document_display,
                     layout::update_tab_strip_highlights,
-                    layout::update_dock_body_visibility,
-                    layout::update_dock_sidebar_highlights,
                     auto_hide_internal_entities,
                     decorate_timeline_tooltips,
                     discover_gltf_clips,
@@ -184,9 +190,11 @@ impl Plugin for EditorPlugin {
                     sync_selected_keyframes_from_selection,
                     handle_keyframe_delete_intercept.before(entity_ops::handle_entity_keys),
                     handle_timeline_shortcuts.before(entity_ops::handle_entity_keys),
+                    auto_save_layout_on_change,
                 )
                     .run_if(in_state(AppState::Editor)),
             )
+            .add_observer(on_workspace_changed)
             .add_observer(on_scroll)
             .add_observer(handle_menu_action)
             .add_observer(on_create_clip_for_selection)
@@ -196,8 +204,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_clip_selector_change)
             .add_observer(on_clip_name_commit)
             .add_observer(on_duration_input_commit)
-            .add_observer(on_timeline_keyframe_click)
-            .add_observer(layout::on_dock_sidebar_icon_click);
+            .add_observer(on_timeline_keyframe_click);
     }
 }
 
@@ -438,7 +445,7 @@ fn on_clip_name_commit(
 /// One-shot decorator: when timeline header buttons appear, stamp
 /// them with `ToolbarTooltip` so the existing tooltip system picks
 /// them up on hover. Runs every frame but short-circuits via
-/// `Added<T>` filters — only fires once per button spawn.
+/// `Added<T>` filters, so it only fires once per button spawn.
 #[allow(clippy::type_complexity)]
 fn decorate_timeline_tooltips(
     play: Query<Entity, Added<jackdaw_animation::TimelinePlayButton>>,
@@ -497,15 +504,15 @@ fn on_create_blend_graph_for_selection(
     };
     let Ok(name) = names.get(primary) else {
         warn!(
-            "Create Blend Graph: selected entity has no Name — give it one in the inspector first"
+            "Create Blend Graph: selected entity has no Name. Give it one in the inspector first"
         );
         return;
     };
     let target_name = name.as_str().to_string();
 
     commands.queue(move |world: &mut World| {
-        // The blend graph clip is BOTH a `Clip` and a `NodeGraph` —
-        // the canvas widget consumes the NodeGraph side of that
+        // The blend graph clip is BOTH a `Clip` and a `NodeGraph`.
+        // The canvas widget consumes the NodeGraph side of that
         // entity, and the timeline dock consumes the Clip side. That
         // means children are GraphNodes + Connections rather than
         // AnimationTracks, but `compile_clips` already skips entities
@@ -551,7 +558,7 @@ fn on_create_blend_graph_for_selection(
 /// Observer: when the placeholder "Create Clip for Selection" button
 /// is clicked, spawn a new `Clip` + `Name` + default `AnimationTrack` for
 /// the primary selected entity, directly via `SpawnEntity`. The
-/// animation crate deliberately exports no custom commands — this is
+/// animation crate deliberately exports no custom commands; this is
 /// the minimum-wrapping form of "create a clip."
 fn on_create_clip_for_selection(
     event: On<jackdaw_feathers::button::ButtonClickEvent>,
@@ -568,7 +575,7 @@ fn on_create_clip_for_selection(
         return;
     };
     let Ok(name) = names.get(primary) else {
-        warn!("Create Clip: selected entity has no Name — give it one in the inspector first");
+        warn!("Create Clip: selected entity has no Name. Give it one in the inspector first");
         return;
     };
     let target_name = name.as_str().to_string();
@@ -576,7 +583,7 @@ fn on_create_clip_for_selection(
     commands.queue(move |world: &mut World| {
         // Spawn clip entity *as a child of the target*. The clip's
         // position in the hierarchy is what encodes "this animates
-        // that" — compile/bind/snapshot all walk up from the clip to
+        // that": compile/bind/snapshot all walk up from the clip to
         // the parent to find the target. Deletion cascades naturally
         // and renaming the target can't silently break the clip
         // because the target is a live Entity reference, not a
@@ -615,9 +622,9 @@ fn on_create_clip_for_selection(
 ///
 /// Two cases are actively updated:
 /// - **A.** Primary selection is already an animation entity (clip,
-///   track, or keyframe) — walk up `ChildOf` until we hit the owning
+///   track, or keyframe): walk up `ChildOf` until we hit the owning
 ///   `Clip` marker and select that.
-/// - **B.** Primary selection is a regular scene entity — find the
+/// - **B.** Primary selection is a regular scene entity: find the
 ///   first `Clip` among its `Children` and select it. Since clips
 ///   now live parented to their target, this is a structural lookup
 ///   rather than a name-based scan.
@@ -625,9 +632,9 @@ fn on_create_clip_for_selection(
 /// **Empty selection is deliberately a no-op.** After deleting a
 /// keyframe the main `delete_selected` path clears `Selection`; if
 /// we also cleared `SelectedClip` here the timeline would bounce to
-/// its placeholder after every keyframe delete. The stale case —
-/// deleting a brush cascades through `ChildOf` and takes its clip
-/// with it — is already handled by `rebuild_timeline`, which falls
+/// its placeholder after every keyframe delete. The stale case
+/// (deleting a brush cascades through `ChildOf` and takes its clip
+/// with it) is already handled by `rebuild_timeline`, which falls
 /// through to the placeholder when `clips.get(selected.0)` fails.
 ///
 /// Lives here rather than in `jackdaw_animation` because the animation
@@ -680,7 +687,7 @@ fn follow_scene_selection_to_clip(
     // Case C: the selected entity is not an animation entity and has
     // no clip children. Clear the active clip so the timeline shows
     // the placeholder with "Create Clip" / "Create Blend Graph".
-    // This is distinct from the empty-selection guard at the top —
+    // This is distinct from the empty-selection guard at the top:
     // empty selection preserves the clip (so keyframe deletes don't
     // bounce the timeline), but selecting a clipless entity is an
     // explicit context switch.
@@ -697,8 +704,8 @@ fn follow_scene_selection_to_clip(
 /// end up clobbering whatever is living at that slot now (the user
 /// saw this as "Ctrl+Z deletes my brush").
 ///
-/// This command captures the keyframe's fields directly — `time`,
-/// `value`, and parent `track` — and on undo spawns a **fresh**
+/// This command captures the keyframe's fields directly (`time`,
+/// `value`, and parent `track`) and on undo spawns a **fresh**
 /// entity with those fields parented to the original track. No
 /// ID reuse, no `DynamicScene`, no surprises.
 enum DespawnKeyframeCmd {
@@ -829,7 +836,7 @@ impl DespawnKeyframeCmd {
 /// Mixed selections (keyframes + a scene entity) work: this system
 /// handles the keyframes, then `handle_entity_keys` handles the
 /// remaining non-keyframe entities normally. Both halves land on
-/// the history as independent commands, which is fine — undo
+/// the history as independent commands, which is fine: undo
 /// reverses them in push order.
 fn handle_keyframe_delete_intercept(world: &mut World) {
     let keyboard = world.resource::<ButtonInput<KeyCode>>();
@@ -838,7 +845,7 @@ fn handle_keyframe_delete_intercept(world: &mut World) {
         return;
     }
 
-    // Don't process delete while a text input is focused — matches
+    // Don't process delete while a text input is focused. Matches
     // the guard in `handle_entity_keys`.
     if world
         .resource::<bevy::input_focus::InputFocus>()
@@ -894,7 +901,7 @@ fn handle_keyframe_delete_intercept(world: &mut World) {
 }
 
 /// Typed, undo-aware spawn command for animation keyframes. Mirror of
-/// [`DespawnKeyframeCmd`] — execute spawns a fresh entity with the
+/// [`DespawnKeyframeCmd`]: execute spawns a fresh entity with the
 /// stored fields parented to the track, undo despawns it. Same ID-
 /// reuse avoidance rationale: direct `world.spawn` rather than
 /// `DynamicScene`.
@@ -1019,8 +1026,12 @@ fn handle_timeline_shortcuts(world: &mut World) {
         )
     };
 
-    let timeline_active =
-        world.resource::<layout::ActiveDockWindow>().0 == layout::DockWindowKind::Timeline;
+    let timeline_active = {
+        let mut query = world.query::<&jackdaw_panels::ActiveDockWindow>();
+        query
+            .iter(world)
+            .any(|active| active.0.as_deref() == Some("jackdaw.timeline"))
+    };
     if timeline_active && !ctrl {
         handle_timeline_scrub_keys(world, shift);
     }
@@ -1273,7 +1284,7 @@ fn handle_keyframe_paste(world: &mut World) {
         });
         let Some(track_entity) = track_entity else {
             warn!(
-                "Paste keyframe: no track for {}.{} on selected clip — add one via the inspector diamond first",
+                "Paste keyframe: no track for {}.{} on selected clip. Add one via the inspector diamond first",
                 entry.component_type_path, entry.field_path,
             );
             continue;
@@ -1342,7 +1353,7 @@ fn handle_keyframe_paste(world: &mut World) {
 /// toggles into the existing selection; plain click replaces with
 /// just the keyframe. Delete is then handled by the main editor's
 /// existing `delete_selected` path, which wraps despawns in
-/// `DespawnEntity` commands for undo safety — the animation crate
+/// `DespawnEntity` commands for undo safety. The animation crate
 /// deliberately does NOT own a delete key handler, so there's no
 /// risk of double-delete when the user has both a scene entity and
 /// a keyframe "selected."
@@ -1492,7 +1503,7 @@ fn register_animation_entities_in_ast(
 /// persist through JSN save/load (just two strings each), so this
 /// discovery step only needs to run once per glTF in a given session.
 ///
-/// The guard — "skip if any child already has a `GltfClipRef`" — keeps
+/// The guard ("skip if any child already has a `GltfClipRef`") keeps
 /// us from resurrecting clips the user deleted within the session.
 /// Adding new clips to the glTF file externally requires a scene
 /// reload to rediscover them, which matches Blender's "reload glTF"
@@ -1512,7 +1523,7 @@ fn discover_gltf_clips(
 ) {
     for (entity, source, children) in &sources {
         // Skip if this GltfSource already has any imported clip
-        // children — discovery has run at least once.
+        // children: discovery has run at least once.
         let any_existing = children
             .into_iter()
             .flatten()
@@ -1615,6 +1626,25 @@ fn populate_menu(world: &mut World) {
                     ("add.terrain", "Terrain"),
                     ("---", ""),
                     ("add.prefab", "Prefab..."),
+                ],
+            ),
+            (
+                "Window",
+                vec![
+                    ("window.hierarchy", "Scene Tree"),
+                    ("window.import", "Import"),
+                    ("window.project_files", "Project Files"),
+                    ("---", ""),
+                    ("window.assets", "Assets"),
+                    ("window.timeline", "Timeline"),
+                    ("window.terminal", "Terminal"),
+                    ("---", ""),
+                    ("window.components", "Components"),
+                    ("window.materials", "Materials"),
+                    ("window.resources", "Resources"),
+                    ("window.systems", "Systems"),
+                    ("---", ""),
+                    ("window.reset_layout", "Reset Layout"),
                 ],
             ),
         ],
@@ -1881,6 +1911,34 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
                 crate::prefab_picker::open_prefab_picker(world);
             });
         }
+        action if action.starts_with("window.") => {
+            if action == "window.reset_layout" {
+                commands.queue(|world: &mut World| {
+                    reset_layout(world);
+                });
+                return;
+            }
+
+            let window_id = match action {
+                "window.hierarchy" => Some("jackdaw.hierarchy"),
+                "window.import" => Some("jackdaw.import"),
+                "window.project_files" => Some("jackdaw.project_files"),
+                "window.assets" => Some("jackdaw.assets"),
+                "window.timeline" => Some("jackdaw.timeline"),
+                "window.terminal" => Some("jackdaw.terminal"),
+                "window.components" => Some("jackdaw.inspector.components"),
+                "window.materials" => Some("jackdaw.inspector.materials"),
+                "window.resources" => Some("jackdaw.inspector.resources"),
+                "window.systems" => Some("jackdaw.inspector.systems"),
+                _ => None,
+            };
+            if let Some(id) = window_id {
+                let id = id.to_string();
+                commands.queue(move |world: &mut World| {
+                    open_window_in_default_area(world, &id);
+                });
+            }
+        }
         _ => {}
     }
 }
@@ -2119,4 +2177,480 @@ fn on_scroll(
     if *delta == Vec2::ZERO {
         scroll.propagate(false);
     }
+}
+
+fn register_workspaces(mut registry: ResMut<jackdaw_panels::WorkspaceRegistry>) {
+    use jackdaw_feathers::icons::Icon;
+
+    registry.register(jackdaw_panels::WorkspaceDescriptor {
+        id: "layout".into(),
+        name: "Main scene".into(),
+        icon: Some(String::from(Icon::File.unicode())),
+        accent_color: Color::srgba(0.35, 0.55, 1.0, 0.8),
+        layout: jackdaw_panels::LayoutState::default(),
+        tree: jackdaw_panels::tree::DockTree::default(),
+    });
+
+    registry.register(jackdaw_panels::WorkspaceDescriptor {
+        id: "debug".into(),
+        name: "Schedule Explorer".into(),
+        icon: Some(String::from(Icon::CalendarSearch.unicode())),
+        accent_color: Color::srgba(0.8, 0.55, 0.35, 0.8),
+        layout: jackdaw_panels::LayoutState::default(),
+        tree: jackdaw_panels::tree::DockTree::default(),
+    });
+}
+
+fn on_workspace_changed(
+    trigger: On<jackdaw_panels::WorkspaceChanged>,
+    mut active: ResMut<layout::ActiveDocument>,
+) {
+    let event = trigger.event();
+    match event.new.as_str() {
+        "layout" => active.kind = layout::TabKind::Scene,
+        "debug" => active.kind = layout::TabKind::ScheduleExplorer,
+        _ => {}
+    }
+}
+
+#[derive(Resource, Default)]
+struct LayoutAutoSaveState {
+    pending_since: Option<f64>,
+}
+
+fn auto_save_layout_on_change(
+    mut commands: Commands,
+    mut state: Local<LayoutAutoSaveState>,
+    time: Res<Time>,
+    panels_changed: Query<Entity, Changed<jackdaw_panels::Panel>>,
+    active_changed: Query<Entity, Changed<jackdaw_panels::ActiveDockWindow>>,
+    area_added: Query<Entity, Added<jackdaw_panels::DockArea>>,
+    mut removed: RemovedComponents<jackdaw_panels::DockArea>,
+    tree: Res<jackdaw_panels::tree::DockTree>,
+    registry: Res<jackdaw_panels::WorkspaceRegistry>,
+) {
+    let now = time.elapsed_secs_f64();
+
+    let any_change = !panels_changed.is_empty()
+        || !active_changed.is_empty()
+        || !area_added.is_empty()
+        || removed.read().next().is_some()
+        || tree.is_changed()
+        || registry.is_changed();
+
+    if any_change {
+        state.pending_since = Some(now);
+    }
+
+    // Debounce: wait 0.5s of no changes before writing.
+    if let Some(since) = state.pending_since {
+        if now - since >= 0.5 {
+            state.pending_since = None;
+            commands.queue(|world: &mut World| {
+                scene_io::save_layout_to_project(world);
+            });
+        }
+    }
+}
+
+/// Build the final DockTree (saved or default-split) BEFORE the
+/// reconciler materializes any content. This way each window's `build_fn`
+/// runs exactly once into its final home with no rebuild churn, which
+/// would otherwise despawn freshly-spawned content while its deferred
+/// init systems (project_files refresh, material_browser scan, etc.)
+/// still hold pointers to it.
+///
+/// Supports three save formats (in priority order):
+/// 1. `WorkspacesPersist`: full per-workspace registry (current).
+/// 2. Bare `DockTree`: single-workspace layout (older format).
+/// 3. None / unparseable: fall through to defaults.
+fn init_layout(world: &mut World) {
+    let layout_json = world
+        .get_resource::<crate::project::ProjectRoot>()
+        .and_then(|p| p.config.project.layout.clone());
+
+    let mut loaded_tree = false;
+    if let Some(json) = layout_json {
+        // Try the per-workspace format first.
+        if let Ok(persist) =
+            serde_json::from_value::<jackdaw_panels::WorkspacesPersist>(json.clone())
+        {
+            if !persist.workspaces.is_empty() {
+                let active_tree = {
+                    let mut registry = world.resource_mut::<jackdaw_panels::WorkspaceRegistry>();
+                    persist.apply_to_registry(&mut registry);
+                    registry.active_workspace().map(|w| w.tree.clone())
+                };
+                if let Some(tree) = active_tree {
+                    world.insert_resource(tree);
+                    loaded_tree = true;
+                }
+            }
+        }
+        // Fall back to the older bare-DockTree format.
+        if !loaded_tree {
+            if let Ok(tree) = serde_json::from_value::<jackdaw_panels::tree::DockTree>(json) {
+                world.insert_resource(tree);
+                loaded_tree = true;
+            }
+        }
+    }
+
+    if !loaded_tree {
+        jackdaw_panels::reconcile::seed_anchors(world);
+        apply_default_splits(world);
+    }
+
+    jackdaw_panels::reconcile::reconcile(world);
+
+    // Make sure the active workspace's `.tree` matches the live tree.
+    // Covers both the "fresh defaults" path and the older bare-DockTree
+    // load path, so subsequent workspace switches save/restore correctly.
+    sync_active_workspace_from_live_tree(world);
+}
+
+/// Open `window_id` in its registered `default_area` anchor. If the
+/// window already lives in a different leaf, move it there (no dupes).
+/// If it isn't in the tree at all, push it onto the target leaf and
+/// activate. Pushing populates the target leaf, which un-hides the
+/// anchor automatically via the reconciler's collapse logic.
+fn open_window_in_default_area(world: &mut World, window_id: &str) {
+    use jackdaw_panels::tree::{DockNode, DockTree};
+
+    let Some(default_area) = world
+        .resource::<jackdaw_panels::WindowRegistry>()
+        .get(window_id)
+        .map(|d| d.default_area.clone())
+    else {
+        return;
+    };
+
+    let target_leaf = {
+        let tree = world.resource::<DockTree>();
+        let Some(root) = tree.anchor(&default_area) else {
+            return;
+        };
+        tree.leaves_under(root).first().map(|(id, _)| *id)
+    };
+    let Some(target_leaf) = target_leaf else {
+        return;
+    };
+
+    let already_in_target = world
+        .resource::<DockTree>()
+        .get(target_leaf)
+        .and_then(|n| n.as_leaf())
+        .map(|l| l.windows.iter().any(|w| w == window_id))
+        .unwrap_or(false);
+
+    let lives_elsewhere =
+        !already_in_target && world.resource::<DockTree>().find_leaf(window_id).is_some();
+
+    let mut tree = world.resource_mut::<DockTree>();
+    if lives_elsewhere {
+        tree.move_window(window_id, target_leaf);
+    } else if let Some(DockNode::Leaf(leaf)) = tree.get_mut(target_leaf) {
+        // Normalize: a leaf that was left over from a collapsed split
+        // still carries a synthetic `area_id` ("split.<window>.<id>")
+        // from when it was created. Now that the user is populating it
+        // afresh via this anchor, rewrite the area_id back to the
+        // canonical anchor name so downstream lookups (capture_layout,
+        // save/load diagnostics, etc.) see a consistent id.
+        if leaf.windows.is_empty() && leaf.area_id != default_area {
+            leaf.area_id = default_area.clone();
+        }
+        if !leaf.windows.iter().any(|w| w == window_id) {
+            leaf.windows.push(window_id.to_string());
+        }
+        leaf.active = Some(window_id.to_string());
+    }
+}
+
+/// Reset the active workspace to the default seed: clear the live tree,
+/// re-seed anchors from the registry, restore the default left split,
+/// and reconcile in a single pass. Same path `init_layout` takes for a
+/// fresh editor launch.
+fn reset_layout(world: &mut World) {
+    *world.resource_mut::<jackdaw_panels::tree::DockTree>() =
+        jackdaw_panels::tree::DockTree::default();
+    jackdaw_panels::reconcile::seed_anchors(world);
+    apply_default_splits(world);
+    jackdaw_panels::reconcile::reconcile(world);
+    sync_active_workspace_from_live_tree(world);
+}
+
+fn sync_active_workspace_from_live_tree(world: &mut World) {
+    let live = world.resource::<jackdaw_panels::tree::DockTree>().clone();
+    let active_id = world
+        .resource::<jackdaw_panels::WorkspaceRegistry>()
+        .active
+        .clone();
+    if let Some(id) = active_id {
+        let mut registry = world.resource_mut::<jackdaw_panels::WorkspaceRegistry>();
+        if let Some(ws) = registry.get_mut(&id) {
+            ws.tree = live;
+        }
+    }
+}
+
+/// First-run / reset layout: the `left` anchor is seeded as a single
+/// leaf with all left-area windows. Split it so Project Files lives in
+/// its own bottom pane (matching the original hardcoded layout).
+fn apply_default_splits(world: &mut World) {
+    use jackdaw_panels::tree::{DockNode, DockTree, Edge};
+
+    let left_root = match world.resource::<DockTree>().anchor("left") {
+        Some(id) => id,
+        None => return,
+    };
+    let already_split = !matches!(
+        world.resource::<DockTree>().get(left_root),
+        Some(DockNode::Leaf(_))
+    );
+    if already_split {
+        return;
+    }
+    let has_project_files = world
+        .resource::<DockTree>()
+        .get(left_root)
+        .and_then(|n| n.as_leaf())
+        .map(|l| l.windows.iter().any(|w| w == "jackdaw.project_files"))
+        .unwrap_or(false);
+    if !has_project_files {
+        return;
+    }
+
+    let mut tree = world.resource_mut::<DockTree>();
+    tree.remove_window("jackdaw.project_files");
+    if let Some(new_leaf) = tree.split(left_root, Edge::Bottom, "jackdaw.project_files".to_string())
+    {
+        if let Some(split_id) = tree.parent_of(new_leaf) {
+            tree.set_fraction(split_id, 0.75);
+        }
+    }
+}
+
+fn sync_icon_font(
+    icon_font: Option<Res<jackdaw_feathers::icons::IconFont>>,
+    mut commands: Commands,
+) {
+    if let Some(font) = icon_font {
+        commands.insert_resource(jackdaw_panels::IconFontHandle(font.0.clone()));
+    }
+}
+
+fn register_all_dock_windows(mut registry: ResMut<jackdaw_panels::WindowRegistry>) {
+    use jackdaw_feathers::icons::Icon;
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.assets".into(),
+        name: "Assets".into(),
+        icon: Some(String::from(Icon::FolderOpen.unicode())),
+        default_area: "bottom_dock".into(),
+        priority: 0,
+        build: std::sync::Arc::new(|world, parent| {
+            let icon_font = world
+                .get_resource::<jackdaw_feathers::icons::IconFont>()
+                .map(|f| f.0.clone())
+                .unwrap_or_default();
+            world.spawn((
+                ChildOf(parent),
+                asset_browser::asset_browser_panel(icon_font),
+            ));
+            world
+                .resource_mut::<asset_browser::AssetBrowserState>()
+                .needs_refresh = true;
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.timeline".into(),
+        name: "Timeline".into(),
+        icon: Some(String::from(Icon::Ruler.unicode())),
+        default_area: "bottom_dock".into(),
+        priority: 1,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((ChildOf(parent), jackdaw_animation::timeline_panel()));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.terminal".into(),
+        name: "Terminal".into(),
+        icon: Some(String::from(Icon::Terminal.unicode())),
+        default_area: "bottom_dock".into(),
+        priority: 2,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((
+                ChildOf(parent),
+                Node {
+                    flex_grow: 1.0,
+                    width: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                children![(
+                    Text::new("Terminal window (not implemented yet)"),
+                    TextFont {
+                        font_size: 11.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.3)),
+                )],
+            ));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.hierarchy".into(),
+        name: "Scene Tree".into(),
+        icon: None,
+        default_area: "left".into(),
+        priority: 0,
+        build: std::sync::Arc::new(|world, parent| {
+            let icon_font = world
+                .get_resource::<jackdaw_feathers::icons::IconFont>()
+                .map(|f| f.0.clone())
+                .unwrap_or_default();
+            world.spawn((ChildOf(parent), crate::layout::hierarchy_content(icon_font)));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.import".into(),
+        name: "Import".into(),
+        icon: None,
+        default_area: "left".into(),
+        priority: 1,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((
+                ChildOf(parent),
+                Node {
+                    flex_grow: 1.0,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                children![(
+                    Text::new("Import"),
+                    TextFont {
+                        font_size: 11.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.3)),
+                )],
+            ));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.project_files".into(),
+        name: "Project Files".into(),
+        icon: None,
+        default_area: "left".into(),
+        priority: 10,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((
+                ChildOf(parent),
+                crate::layout::project_files_panel_content(),
+            ));
+            world
+                .resource_mut::<project_files::ProjectFilesState>()
+                .needs_refresh = true;
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.inspector.components".into(),
+        name: "Components".into(),
+        icon: None,
+        default_area: "right_sidebar".into(),
+        priority: 0,
+        build: std::sync::Arc::new(|world, parent| {
+            let icon_font = world
+                .get_resource::<jackdaw_feathers::icons::IconFont>()
+                .map(|f| f.0.clone())
+                .unwrap_or_default();
+            world.spawn((
+                ChildOf(parent),
+                crate::layout::inspector_components_content(icon_font),
+            ));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.inspector.materials".into(),
+        name: "Materials".into(),
+        icon: None,
+        default_area: "right_sidebar".into(),
+        priority: 1,
+        build: std::sync::Arc::new(|world, parent| {
+            let icon_font = world
+                .get_resource::<jackdaw_feathers::icons::IconFont>()
+                .map(|f| f.0.clone())
+                .unwrap_or_default();
+            world.spawn((
+                ChildOf(parent),
+                material_browser::material_browser_panel(icon_font),
+            ));
+            world
+                .resource_mut::<material_browser::MaterialBrowserState>()
+                .needs_rescan = true;
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.inspector.resources".into(),
+        name: "Resources".into(),
+        icon: None,
+        default_area: "right_sidebar".into(),
+        priority: 2,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((
+                ChildOf(parent),
+                Node {
+                    flex_grow: 1.0,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                children![(
+                    Text::new("Resources"),
+                    TextFont {
+                        font_size: 11.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.3)),
+                )],
+            ));
+        }),
+    });
+
+    registry.register(jackdaw_panels::DockWindowDescriptor {
+        id: "jackdaw.inspector.systems".into(),
+        name: "Systems".into(),
+        icon: None,
+        default_area: "right_sidebar".into(),
+        priority: 3,
+        build: std::sync::Arc::new(|world, parent| {
+            world.spawn((
+                ChildOf(parent),
+                Node {
+                    flex_grow: 1.0,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                children![(
+                    Text::new("Systems"),
+                    TextFont {
+                        font_size: 11.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.3)),
+                )],
+            ));
+        }),
+    });
 }

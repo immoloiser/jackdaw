@@ -1,0 +1,607 @@
+use bevy::prelude::*;
+use bevy::ui::UiGlobalTransform;
+use jackdaw_feathers::tokens;
+
+use crate::area::{DockArea, DockTab};
+use crate::reconcile::NodeBinding;
+use crate::sidebar::DockSidebarIcon;
+use crate::tabs::DockTabGrip;
+use crate::tree::{DockTree, Edge as TreeEdge};
+
+const DRAG_THRESHOLD: f32 = 5.0;
+
+#[derive(Resource, Default, Debug)]
+pub enum DockDragState {
+    #[default]
+    Idle,
+    PendingDrag {
+        source_tab: Entity,
+        window_id: String,
+        window_name: String,
+        start_pos: Vec2,
+    },
+    Dragging {
+        source_tab: Entity,
+        window_id: String,
+        window_name: String,
+        source_area: Entity,
+        ghost_entity: Entity,
+        cursor_pos: Vec2,
+        drop_target: Option<DropTarget>,
+        overlay_entity: Option<Entity>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum DropTarget {
+    TabBar(Entity),
+    AreaEdge {
+        area: Entity,
+        edge: DropEdge,
+    },
+    /// Dropped on the editor viewport's edge. Routes to the anchor
+    /// associated with that edge (left/right_sidebar/bottom_dock).
+    ViewportEdge {
+        anchor_id: String,
+        edge: DropEdge,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+#[derive(Component)]
+pub struct DragGhost;
+
+#[derive(Component)]
+pub struct DropOverlay;
+
+/// Marks the editor viewport entity as a drop target. The viewport is
+/// not an `AnchorHost`; dropping on its edge re-populates one of the
+/// side anchors (`left`, `right_sidebar`, `bottom_dock`) instead.
+#[derive(Component)]
+pub struct ViewportDropTarget;
+
+pub struct DockDragPlugin;
+
+impl Plugin for DockDragPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<DockDragState>()
+            .add_observer(on_tab_drag_start)
+            .add_observer(on_sidebar_icon_drag_start)
+            .add_observer(on_grip_drag_start)
+            .add_observer(on_drag_move)
+            .add_observer(on_drag_end)
+            .add_systems(Update, cancel_drag_on_escape);
+    }
+}
+
+fn on_tab_drag_start(
+    trigger: On<Pointer<DragStart>>,
+    tabs: Query<&DockTab>,
+    mut drag_state: ResMut<DockDragState>,
+    registry: Res<crate::WindowRegistry>,
+) {
+    let entity = trigger.event_target();
+    let Ok(tab) = tabs.get(entity) else { return };
+
+    let display_name = registry
+        .get(&tab.window_id)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| tab.window_id.clone());
+
+    *drag_state = DockDragState::PendingDrag {
+        source_tab: entity,
+        window_id: tab.window_id.clone(),
+        window_name: display_name,
+        start_pos: Vec2::new(
+            trigger.event().pointer_location.position.x,
+            trigger.event().pointer_location.position.y,
+        ),
+    };
+}
+
+fn on_sidebar_icon_drag_start(
+    trigger: On<Pointer<DragStart>>,
+    icons: Query<&DockSidebarIcon>,
+    mut drag_state: ResMut<DockDragState>,
+    registry: Res<crate::WindowRegistry>,
+) {
+    let entity = trigger.event_target();
+    let Ok(icon) = icons.get(entity) else { return };
+
+    let display_name = registry
+        .get(&icon.window_id)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| icon.window_id.clone());
+
+    *drag_state = DockDragState::PendingDrag {
+        source_tab: entity,
+        window_id: icon.window_id.clone(),
+        window_name: display_name,
+        start_pos: Vec2::new(
+            trigger.event().pointer_location.position.x,
+            trigger.event().pointer_location.position.y,
+        ),
+    };
+}
+
+fn on_grip_drag_start(
+    trigger: On<Pointer<DragStart>>,
+    grips: Query<(), With<DockTabGrip>>,
+    dock_areas: Query<&crate::ActiveDockWindow, With<DockArea>>,
+    parent_query: Query<&ChildOf>,
+    mut drag_state: ResMut<DockDragState>,
+    registry: Res<crate::WindowRegistry>,
+) {
+    let entity = trigger.event_target();
+    if grips.get(entity).is_err() {
+        return;
+    }
+
+    let mut current = entity;
+    let mut active_window_id = None;
+    loop {
+        if let Ok(active) = dock_areas.get(current) {
+            active_window_id = active.0.clone();
+            break;
+        }
+        let Ok(parent) = parent_query.get(current) else {
+            break;
+        };
+        current = parent.parent();
+    }
+
+    let Some(window_id) = active_window_id else {
+        return;
+    };
+
+    let window_name = registry
+        .get(&window_id)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| window_id.clone());
+
+    *drag_state = DockDragState::PendingDrag {
+        source_tab: entity,
+        window_id,
+        window_name,
+        start_pos: Vec2::new(
+            trigger.event().pointer_location.position.x,
+            trigger.event().pointer_location.position.y,
+        ),
+    };
+}
+
+fn on_drag_move(
+    mut trigger: On<Pointer<Drag>>,
+    mut drag_state: ResMut<DockDragState>,
+    mut commands: Commands,
+    areas: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<DockArea>>,
+    viewports: Query<(&ComputedNode, &UiGlobalTransform), With<ViewportDropTarget>>,
+    parent_query: Query<&ChildOf>,
+) {
+    let drag_event = trigger.event();
+    let cursor = Vec2::new(
+        drag_event.pointer_location.position.x,
+        drag_event.pointer_location.position.y,
+    );
+
+    match &*drag_state {
+        DockDragState::PendingDrag {
+            source_tab,
+            window_id,
+            window_name,
+            start_pos,
+        } => {
+            if cursor.distance(*start_pos) < DRAG_THRESHOLD {
+                return;
+            }
+
+            let source_tab = *source_tab;
+            let window_id = window_id.clone();
+            let window_name = window_name.clone();
+
+            let source_area = find_parent_area(source_tab, &parent_query, &areas);
+
+            let ghost = commands
+                .spawn((
+                    DragGhost,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(cursor.x - 40.0),
+                        top: Val::Px(cursor.y - 12.0),
+                        padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(tokens::MENU_BG),
+                    BorderColor::all(tokens::ACCENT_BLUE),
+                    GlobalZIndex(200),
+                    children![(
+                        Text::new(window_name.clone()),
+                        TextFont {
+                            font_size: 11.0,
+                            ..default()
+                        },
+                        TextColor(tokens::TEXT_PRIMARY),
+                    )],
+                ))
+                .id();
+
+            *drag_state = DockDragState::Dragging {
+                source_tab,
+                window_id,
+                window_name,
+                source_area: source_area.unwrap_or(Entity::PLACEHOLDER),
+                ghost_entity: ghost,
+                cursor_pos: cursor,
+                drop_target: None,
+                overlay_entity: None,
+            };
+
+            trigger.propagate(false);
+        }
+        DockDragState::Dragging {
+            ghost_entity,
+            overlay_entity,
+            ..
+        } => {
+            let ghost = *ghost_entity;
+            let old_overlay = *overlay_entity;
+
+            commands.entity(ghost).insert(Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(cursor.x - 40.0),
+                top: Val::Px(cursor.y - 12.0),
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(4.0)),
+                ..default()
+            });
+
+            if let Some(old) = old_overlay {
+                commands.entity(old).despawn();
+            }
+
+            let mut new_target = None;
+            let mut new_overlay = None;
+
+            for (area_entity, computed, ui_transform) in &areas {
+                if !computed.contains_point(*ui_transform, cursor) {
+                    continue;
+                }
+
+                let size = computed.size() * computed.inverse_scale_factor();
+                let (_scale, _angle, center) = ui_transform.to_scale_angle_translation();
+                let top_left = center - size / 2.0;
+
+                let rel = cursor - top_left;
+                let frac_x = rel.x / size.x;
+                let frac_y = rel.y / size.y;
+
+                let edge = if frac_y < 0.25 {
+                    Some(DropEdge::Top)
+                } else if frac_y > 0.75 {
+                    Some(DropEdge::Bottom)
+                } else if frac_x < 0.25 {
+                    Some(DropEdge::Left)
+                } else if frac_x > 0.75 {
+                    Some(DropEdge::Right)
+                } else {
+                    None
+                };
+
+                if let Some(edge) = edge {
+                    new_target = Some(DropTarget::AreaEdge {
+                        area: area_entity,
+                        edge,
+                    });
+
+                    let (overlay_pos, overlay_size) = edge_overlay_rect(top_left, size, edge);
+                    let overlay = commands
+                        .spawn((
+                            DropOverlay,
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(overlay_pos.x),
+                                top: Val::Px(overlay_pos.y),
+                                width: Val::Px(overlay_size.x),
+                                height: Val::Px(overlay_size.y),
+                                border: UiRect::all(Val::Px(2.0)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.126, 0.431, 0.784, 0.25)),
+                            BorderColor::all(tokens::ACCENT_BLUE),
+                            GlobalZIndex(150),
+                        ))
+                        .id();
+                    new_overlay = Some(overlay);
+                } else {
+                    new_target = Some(DropTarget::TabBar(area_entity));
+
+                    let overlay = commands
+                        .spawn((
+                            DropOverlay,
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(top_left.x),
+                                top: Val::Px(top_left.y),
+                                width: Val::Px(size.x),
+                                height: Val::Px(size.y),
+                                border: UiRect::all(Val::Px(2.0)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.126, 0.431, 0.784, 0.12)),
+                            BorderColor::all(tokens::ACCENT_BLUE),
+                            GlobalZIndex(150),
+                        ))
+                        .id();
+                    new_overlay = Some(overlay);
+                }
+
+                break;
+            }
+
+            // Fall through to viewport hit-test when the cursor isn't
+            // over any DockArea. Lets a tab drop on the viewport's edge
+            // re-populate a collapsed side panel.
+            if new_target.is_none() {
+                for (computed, ui_transform) in &viewports {
+                    if !computed.contains_point(*ui_transform, cursor) {
+                        continue;
+                    }
+
+                    let size = computed.size() * computed.inverse_scale_factor();
+                    let (_scale, _angle, center) = ui_transform.to_scale_angle_translation();
+                    let top_left = center - size / 2.0;
+
+                    let rel = cursor - top_left;
+                    let frac_x = rel.x / size.x;
+                    let frac_y = rel.y / size.y;
+
+                    // No top anchor above the viewport, so skip Top.
+                    // The center region (25..75% on both axes) is a no-op.
+                    let edge = if frac_y > 0.75 {
+                        Some(DropEdge::Bottom)
+                    } else if frac_x < 0.25 {
+                        Some(DropEdge::Left)
+                    } else if frac_x > 0.75 {
+                        Some(DropEdge::Right)
+                    } else {
+                        None
+                    };
+
+                    let Some(edge) = edge else { break };
+                    let anchor_id = match edge {
+                        DropEdge::Left => "left",
+                        DropEdge::Right => "right_sidebar",
+                        DropEdge::Bottom => "bottom_dock",
+                        DropEdge::Top => unreachable!(),
+                    };
+
+                    new_target = Some(DropTarget::ViewportEdge {
+                        anchor_id: anchor_id.to_string(),
+                        edge,
+                    });
+
+                    let (overlay_pos, overlay_size) = edge_overlay_rect(top_left, size, edge);
+                    let overlay = commands
+                        .spawn((
+                            DropOverlay,
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(overlay_pos.x),
+                                top: Val::Px(overlay_pos.y),
+                                width: Val::Px(overlay_size.x),
+                                height: Val::Px(overlay_size.y),
+                                border: UiRect::all(Val::Px(2.0)),
+                                border_radius: BorderRadius::all(Val::Px(4.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.126, 0.431, 0.784, 0.25)),
+                            BorderColor::all(tokens::ACCENT_BLUE),
+                            GlobalZIndex(150),
+                        ))
+                        .id();
+                    new_overlay = Some(overlay);
+                    break;
+                }
+            }
+
+            if let DockDragState::Dragging {
+                drop_target,
+                overlay_entity,
+                cursor_pos,
+                ..
+            } = &mut *drag_state
+            {
+                *drop_target = new_target;
+                *overlay_entity = new_overlay;
+                *cursor_pos = cursor;
+            }
+
+            trigger.propagate(false);
+        }
+        _ => {}
+    }
+}
+
+fn on_drag_end(
+    _trigger: On<Pointer<DragEnd>>,
+    mut drag_state: ResMut<DockDragState>,
+    mut commands: Commands,
+) {
+    let state = std::mem::take(&mut *drag_state);
+    match state {
+        DockDragState::Dragging {
+            ghost_entity,
+            overlay_entity,
+            drop_target,
+            window_id,
+            source_area,
+            ..
+        } => {
+            commands.entity(ghost_entity).despawn();
+            if let Some(overlay) = overlay_entity {
+                commands.entity(overlay).despawn();
+            }
+
+            if let Some(target) = drop_target {
+                match target {
+                    DropTarget::TabBar(target_area) => {
+                        if target_area != source_area {
+                            let wid = window_id.clone();
+                            commands.queue(move |world: &mut World| {
+                                drop_on_area(world, &wid, target_area);
+                            });
+                        }
+                    }
+                    DropTarget::AreaEdge { area, edge } => {
+                        let wid = window_id.clone();
+                        commands.queue(move |world: &mut World| {
+                            drop_on_edge(world, &wid, area, edge);
+                        });
+                    }
+                    DropTarget::ViewportEdge { anchor_id, edge } => {
+                        let wid = window_id.clone();
+                        commands.queue(move |world: &mut World| {
+                            drop_on_viewport_edge(world, &wid, &anchor_id, edge);
+                        });
+                    }
+                }
+            }
+        }
+        DockDragState::PendingDrag { .. } => {}
+        DockDragState::Idle => {}
+    }
+
+    *drag_state = DockDragState::Idle;
+}
+
+fn cancel_drag_on_escape(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut drag_state: ResMut<DockDragState>,
+    mut commands: Commands,
+) {
+    if !keys.just_pressed(KeyCode::Escape) {
+        return;
+    }
+
+    let state = std::mem::take(&mut *drag_state);
+    if let DockDragState::Dragging {
+        ghost_entity,
+        overlay_entity,
+        ..
+    } = state
+    {
+        commands.entity(ghost_entity).despawn();
+        if let Some(overlay) = overlay_entity {
+            commands.entity(overlay).despawn();
+        }
+    }
+
+    *drag_state = DockDragState::Idle;
+}
+
+/// Move `window_id` into the leaf bound to `target_area`.
+fn drop_on_area(world: &mut World, window_id: &str, target_area: Entity) {
+    let Some(binding) = world.entity(target_area).get::<NodeBinding>().copied() else {
+        return;
+    };
+    world
+        .resource_mut::<DockTree>()
+        .move_window(window_id, binding.0);
+}
+
+/// Split the leaf bound to `target_area` along `edge` and place
+/// `window_id` into the new sibling.
+fn drop_on_edge(world: &mut World, window_id: &str, target_area: Entity, edge: DropEdge) {
+    let Some(binding) = world.entity(target_area).get::<NodeBinding>().copied() else {
+        return;
+    };
+    let tree_edge = match edge {
+        DropEdge::Top => TreeEdge::Top,
+        DropEdge::Bottom => TreeEdge::Bottom,
+        DropEdge::Left => TreeEdge::Left,
+        DropEdge::Right => TreeEdge::Right,
+    };
+    let mut tree = world.resource_mut::<DockTree>();
+    tree.remove_window(window_id);
+    tree.split(binding.0, tree_edge, window_id.to_string());
+}
+
+/// Drop `window_id` onto the viewport's `edge`, routing into the anchor
+/// that owns that edge (e.g. `Right` → `right_sidebar`). If the anchor's
+/// first leaf is empty (collapsed panel), the window is added to it so
+/// the reconciler un-hides the host next tick. Otherwise the leaf is
+/// split at `edge` to create a sibling leaf holding the window.
+fn drop_on_viewport_edge(world: &mut World, window_id: &str, anchor_id: &str, edge: DropEdge) {
+    let mut tree = world.resource_mut::<DockTree>();
+    let Some(root) = tree.anchor(anchor_id) else {
+        return;
+    };
+    let Some((leaf_id, leaf_is_empty)) = tree
+        .leaves_under(root)
+        .first()
+        .map(|(id, leaf)| (*id, leaf.windows.is_empty()))
+    else {
+        return;
+    };
+
+    tree.remove_window(window_id);
+
+    if leaf_is_empty {
+        if let Some(crate::tree::DockNode::Leaf(l)) = tree.get_mut(leaf_id) {
+            l.windows.push(window_id.to_string());
+            l.active = Some(window_id.to_string());
+        }
+    } else {
+        let tree_edge = match edge {
+            DropEdge::Top => TreeEdge::Top,
+            DropEdge::Bottom => TreeEdge::Bottom,
+            DropEdge::Left => TreeEdge::Left,
+            DropEdge::Right => TreeEdge::Right,
+        };
+        tree.split(leaf_id, tree_edge, window_id.to_string());
+    }
+}
+
+fn find_parent_area(
+    entity: Entity,
+    parents: &Query<&ChildOf>,
+    areas: &Query<(Entity, &ComputedNode, &UiGlobalTransform), With<DockArea>>,
+) -> Option<Entity> {
+    let mut current = entity;
+    loop {
+        if areas.contains(current) {
+            return Some(current);
+        }
+        let Ok(parent) = parents.get(current) else {
+            return None;
+        };
+        current = parent.parent();
+    }
+}
+
+fn edge_overlay_rect(top_left: Vec2, size: Vec2, edge: DropEdge) -> (Vec2, Vec2) {
+    match edge {
+        DropEdge::Top => (top_left, Vec2::new(size.x, size.y * 0.5)),
+        DropEdge::Bottom => (
+            Vec2::new(top_left.x, top_left.y + size.y * 0.5),
+            Vec2::new(size.x, size.y * 0.5),
+        ),
+        DropEdge::Left => (top_left, Vec2::new(size.x * 0.5, size.y)),
+        DropEdge::Right => (
+            Vec2::new(top_left.x + size.x * 0.5, top_left.y),
+            Vec2::new(size.x * 0.5, size.y),
+        ),
+    }
+}
