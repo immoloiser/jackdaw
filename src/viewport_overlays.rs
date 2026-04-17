@@ -76,7 +76,7 @@ impl Default for OverlaySettings {
             show_bounding_boxes: false,
             show_coordinate_indicator: true,
             bounding_box_mode: BoundingBoxMode::default(),
-            show_face_grid: true,
+            show_face_grid: false,
             show_brush_wireframe: false,
             show_brush_outline: true,
             show_alignment_guides: true,

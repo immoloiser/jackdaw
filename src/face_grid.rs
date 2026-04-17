@@ -68,17 +68,17 @@ fn configure_face_grid_gizmos(mut config_store: ResMut<GizmoConfigStore>) {
     config.depth_bias = -0.9999;
     config.line = default_style::WIREFRAME_LINE_UNSELECTED;
 
-    let (config, _) = config_store.config_mut::<BrushOutlineUnselectedGizmoGroup>();
+    let (config, _) = config_store.config_mut::<BrushOutlineSelectedGizmoGroup>();
     config.depth_bias = -0.0012;
+    config.line = default_style::OUTLINE_LINE_SELECTED;
+
+    let (config, _) = config_store.config_mut::<BrushOutlineUnselectedGizmoGroup>();
+    config.depth_bias = -0.0011;
     config.line = default_style::OUTLINE_LINE_UNSELECTED;
 
     let (config, _) = config_store.config_mut::<FaceGridGizmoGroup>();
-    config.depth_bias = -0.0011;
-    config.line = default_style::FACE_GRID_LINE;
-
-    let (config, _) = config_store.config_mut::<BrushOutlineSelectedGizmoGroup>();
     config.depth_bias = -0.001;
-    config.line = default_style::OUTLINE_LINE_SELECTED;
+    config.line = default_style::FACE_GRID_LINE;
 }
 
 /// Draw brush wireframe and outlines. Will do special treatment for the currently selected brushes.
@@ -322,8 +322,7 @@ fn draw_face_grids(
                     let a = reconstruct_3d(p0_2d, axis_u, axis_v, plane_axis, plane_d, normal_arr);
                     let b = reconstruct_3d(p1_2d, axis_u, axis_v, plane_axis, plane_d, normal_arr);
                     if let (Some(a), Some(b)) = (a, b) {
-                        let offset = world_normal * 0.002;
-                        gizmos.line(a + offset, b + offset, color);
+                        gizmos.line(a, b, color);
                     }
                 }
                 u += grid_size;
@@ -336,8 +335,7 @@ fn draw_face_grids(
                     let a = reconstruct_3d(p0_2d, axis_u, axis_v, plane_axis, plane_d, normal_arr);
                     let b = reconstruct_3d(p1_2d, axis_u, axis_v, plane_axis, plane_d, normal_arr);
                     if let (Some(a), Some(b)) = (a, b) {
-                        let offset = world_normal * 0.002;
-                        gizmos.line(a + offset, b + offset, color);
+                        gizmos.line(a, b, color);
                     }
                 }
                 v += grid_size;

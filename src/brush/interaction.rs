@@ -1878,8 +1878,6 @@ pub(super) fn handle_clip_mode(
             return;
         };
         let (_, brush_rot, brush_trans) = brush_global.to_scale_rotation_translation();
-        let world_normal = brush_rot * plane.normal;
-        let center = brush_global.transform_point(plane.normal * plane.distance);
 
         let world_faces = brush_planes_to_world(&brush_ref.faces, brush_rot, brush_trans);
 
@@ -1940,17 +1938,6 @@ pub(super) fn handle_clip_mode(
                 }
             }
         }
-
-        // Draw normal arrow (direction reflects mode)
-        let arrow_dir = match clip_state.mode {
-            ClipMode::KeepBack => -world_normal,
-            _ => world_normal,
-        };
-        gizmos.arrow(
-            center,
-            center + arrow_dir * 0.5,
-            default_style::CLIP_NORMAL_ARROW,
-        );
     }
 }
 

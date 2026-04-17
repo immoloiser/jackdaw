@@ -39,10 +39,11 @@ pub const OUTLINE_LINE_SELECTED: GizmoLineConfig = GizmoLineConfig {
 };
 
 // ── Face grid ──
-pub const FACE_GRID_SELECTED: Color = Color::srgba(0.294, 0.333, 0.388, 0.2);
-pub const FACE_GRID_UNSELECTED: Color = Color::srgba(0.294, 0.333, 0.388, 0.1);
+pub const FACE_GRID_SELECTED: Color = Color::srgba(0.2, 0.2, 0.2, 0.6);
+pub const FACE_GRID_UNSELECTED: Color = FACE_GRID_SELECTED;
 pub const FACE_GRID_LINE: GizmoLineConfig = GizmoLineConfig {
-    width: 0.5,
+    perspective: true,
+    width: 1.8,
     ..DEFAULT_LINE_CONFIG
 };
 
@@ -57,11 +58,10 @@ pub const SELECTION_MARQUEE_BORDER: Color = Color::srgba(0.3, 0.5, 1.0, 0.7);
 
 // ── Brush edit mode ──
 /// Things that are currently being edited
-pub const EDIT_SELECTED_COLOR: Color = Color::srgba(1.0, 0.0, 0.0, 1.0);
+pub const EDIT_SELECTED_COLOR: Color = Color::WHITE;
 /// For things that are not currently being edited, but could be if the user e.g. clicked on them
 pub const EDIT_AVAILABLE_COLOR: Color = Color::srgba(0.996, 0.996, 0.133333, 1.0);
 pub const EDIT_VERTEX_RADIUS: f32 = 0.04;
-pub const FACE_NORMAL_ARROW: Color = Color::srgb(0.0, 1.0, 1.0);
 pub const FACE_EXTRUDE_PREVIEW: Color = Color::srgb(0.0, 1.0, 0.5);
 
 // ── Draw / cut mode ──
@@ -76,7 +76,6 @@ pub const CLIP_POINT: Color = Color::srgb(1.0, 0.3, 0.3);
 pub const CLIP_KEEP: Color = Color::srgba(0.3, 1.0, 0.5, 0.8);
 pub const CLIP_DISCARD: Color = Color::srgba(1.0, 0.2, 0.2, 0.4);
 pub const CLIP_SPLIT_BACK: Color = Color::srgba(0.3, 0.5, 1.0, 0.8);
-pub const CLIP_NORMAL_ARROW: Color = Color::srgb(1.0, 0.3, 0.3);
 
 // ── Alignment guides ──
 pub const ALIGNMENT_GUIDE: Color = Color::srgba(1.0, 0.65, 0.0, 0.85);

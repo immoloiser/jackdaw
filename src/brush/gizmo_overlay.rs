@@ -30,7 +30,7 @@ pub(super) fn draw_brush_edit_gizmos(
                     let is_selected = brush_selection.faces.contains(&hover_face)
                         && brush_selection.entity == Some(hover_entity);
                     if !is_selected {
-                        let color = default_style::EDIT_SELECTED_COLOR;
+                        let color = default_style::EDIT_AVAILABLE_COLOR;
                         for i in 0..polygon.len() {
                             let a = brush_global.transform_point(cache.vertices[polygon[i]]);
                             let b = brush_global
@@ -120,31 +120,17 @@ pub(super) fn draw_brush_edit_gizmos(
 
     // Highlight selected faces
     if mode == BrushEditMode::Face {
-        if let Ok(brush) = brushes.get(brush_entity) {
-            for &face_idx in &brush_selection.faces {
-                let polygon = &cache.face_polygons[face_idx];
-                if polygon.len() < 3 {
-                    continue;
-                }
-                // Draw face outline in bright color
-                for i in 0..polygon.len() {
-                    let a = brush_global.transform_point(cache.vertices[polygon[i]]);
-                    let b = brush_global
-                        .transform_point(cache.vertices[polygon[(i + 1) % polygon.len()]]);
-                    gizmos.line(a, b, default_style::EDIT_SELECTED_COLOR);
-                }
-                // Draw the face normal from centroid
-                let centroid: Vec3 = polygon.iter().map(|&vi| cache.vertices[vi]).sum::<Vec3>()
-                    / polygon.len() as f32;
-                let world_centroid = brush_global.transform_point(centroid);
-                let normal = brush.faces[face_idx].plane.normal;
-                let (_, brush_rot, _) = brush_global.to_scale_rotation_translation();
-                let world_normal = brush_rot * normal;
-                gizmos.arrow(
-                    world_centroid,
-                    world_centroid + world_normal * 0.5,
-                    default_style::FACE_NORMAL_ARROW,
-                );
+        for &face_idx in &brush_selection.faces {
+            let polygon = &cache.face_polygons[face_idx];
+            if polygon.len() < 3 {
+                continue;
+            }
+            // Draw face outline in bright color
+            for i in 0..polygon.len() {
+                let a = brush_global.transform_point(cache.vertices[polygon[i]]);
+                let b =
+                    brush_global.transform_point(cache.vertices[polygon[(i + 1) % polygon.len()]]);
+                gizmos.line(a, b, default_style::EDIT_SELECTED_COLOR);
             }
         }
     }
