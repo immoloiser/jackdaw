@@ -5,7 +5,7 @@ use super::interaction::{
 };
 use super::{BrushEditMode, BrushMeshCache, BrushSelection, EditMode};
 use crate::default_style;
-use crate::face_grid::BrushWireframeGizmoGroup;
+use crate::face_grid::BrushWireframeUnselectedGizmoGroup;
 use jackdaw_jsn::Brush;
 
 pub(super) fn draw_brush_edit_gizmos(
@@ -18,7 +18,7 @@ pub(super) fn draw_brush_edit_gizmos(
     edge_drag: Res<EdgeDragState>,
     face_drag: Res<BrushDragState>,
     hover: Res<super::BrushFaceHover>,
-    mut gizmos: Gizmos<BrushWireframeGizmoGroup>,
+    mut gizmos: Gizmos<BrushWireframeUnselectedGizmoGroup>,
 ) {
     // Draw hover face outline (works in both Object and Edit modes)
     if let (Some(hover_entity), Some(hover_face)) = (hover.entity, hover.face_index) {

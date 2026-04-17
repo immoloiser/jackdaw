@@ -16,23 +16,33 @@ use crate::{JackdawDrawSystems, default_style};
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct FaceGridGizmoGroup;
 
-/// Gizmo group for brush edge wireframes. Rendered in front of both geometry
+/// Gizmo group for unselected brush edge wireframes. Rendered in front of both geometry
 /// and face grid lines to ensure edges are always clearly visible.
 #[derive(Default, Reflect, GizmoConfigGroup)]
-pub struct BrushWireframeGizmoGroup;
+pub struct BrushWireframeUnselectedGizmoGroup;
 
-/// Gizmo group for brush outlines. Like wireframe, but not rendered in front of geometry.
-/// Changes color if the current brush is selected.
+/// Gizmo group for selecetd brush edge wireframes. Rendered in front of both geometry
+/// and face grid lines to ensure edges are always clearly visible.
 #[derive(Default, Reflect, GizmoConfigGroup)]
-pub struct BrushOutlineGizmoGroup;
+pub struct BrushWireframeSelectedGizmoGroup;
+
+/// Gizmo group for unselected brush outlines. Like wireframe, but not rendered in front of geometry.
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct BrushOutlineUnselectedGizmoGroup;
+
+/// Gizmo group for selected brush outlines. Like wireframe, but not rendered in front of geometry.
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct BrushOutlineSelectedGizmoGroup;
 
 pub struct FaceGridPlugin;
 
 impl Plugin for FaceGridPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<FaceGridGizmoGroup>()
-            .init_gizmo_group::<BrushWireframeGizmoGroup>()
-            .init_gizmo_group::<BrushOutlineGizmoGroup>()
+            .init_gizmo_group::<BrushWireframeUnselectedGizmoGroup>()
+            .init_gizmo_group::<BrushWireframeSelectedGizmoGroup>()
+            .init_gizmo_group::<BrushOutlineUnselectedGizmoGroup>()
+            .init_gizmo_group::<BrushOutlineSelectedGizmoGroup>()
             .add_systems(Startup, configure_face_grid_gizmos)
             .add_systems(
                 PostUpdate,
@@ -48,23 +58,35 @@ impl Plugin for FaceGridPlugin {
 }
 
 fn configure_face_grid_gizmos(mut config_store: ResMut<GizmoConfigStore>) {
+    // configured in draw order
+
+    let (config, _) = config_store.config_mut::<BrushWireframeSelectedGizmoGroup>();
+    config.depth_bias = -1.0;
+    config.line = default_style::WIREFRAME_LINE_SELECTED;
+
+    let (config, _) = config_store.config_mut::<BrushWireframeUnselectedGizmoGroup>();
+    config.depth_bias = -0.9999;
+    config.line = default_style::WIREFRAME_LINE_UNSELECTED;
+
+    let (config, _) = config_store.config_mut::<BrushOutlineUnselectedGizmoGroup>();
+    config.depth_bias = -0.0012;
+    config.line = default_style::OUTLINE_LINE_UNSELECTED;
+
     let (config, _) = config_store.config_mut::<FaceGridGizmoGroup>();
-    config.depth_bias = -0.001;
+    config.depth_bias = -0.0011;
     config.line = default_style::FACE_GRID_LINE;
 
-    let (config, _) = config_store.config_mut::<BrushWireframeGizmoGroup>();
-    config.depth_bias = -1.0;
-    config.line = default_style::WIREFRAME_LINE;
-
-    let (config, _) = config_store.config_mut::<BrushOutlineGizmoGroup>();
+    let (config, _) = config_store.config_mut::<BrushOutlineSelectedGizmoGroup>();
     config.depth_bias = -0.001;
-    config.line = default_style::OUTLINE_LINE;
+    config.line = default_style::OUTLINE_LINE_SELECTED;
 }
 
 /// Draw brush wireframe and outlines. Will do special treatment for the currently selected brushes.
 fn draw_brush_wireframe(
-    mut wireframe: Gizmos<BrushWireframeGizmoGroup>,
-    mut outline: Gizmos<BrushOutlineGizmoGroup>,
+    mut wireframe_unselected: Gizmos<BrushWireframeUnselectedGizmoGroup>,
+    mut wireframe_selected: Gizmos<BrushWireframeSelectedGizmoGroup>,
+    mut outline_unselected: Gizmos<BrushOutlineUnselectedGizmoGroup>,
+    mut outline_selected: Gizmos<BrushOutlineSelectedGizmoGroup>,
     settings: Res<OverlaySettings>,
     edit_mode: Res<EditMode>,
     brushes: Query<
@@ -164,11 +186,19 @@ fn draw_brush_wireframe(
                     }
                     let wa = global_tf.transform_point(cache.vertices[a]);
                     let wb = global_tf.transform_point(cache.vertices[b]);
-                    if settings.show_brush_wireframe {
-                        wireframe.line(wa, wb, color);
-                    }
-                    if is_selected || settings.show_brush_outline {
-                        outline.line(wa, wb, color);
+                    if is_selected {
+                        // selected brushes *always* draw their outlines
+                        outline_selected.line(wa, wb, color);
+                        if settings.show_brush_wireframe {
+                            wireframe_selected.line(wa, wb, color);
+                        }
+                    } else {
+                        if settings.show_brush_outline {
+                            outline_unselected.line(wa, wb, color);
+                        }
+                        if settings.show_brush_wireframe {
+                            wireframe_unselected.line(wa, wb, color);
+                        }
                     }
                 }
             }
@@ -318,7 +348,7 @@ fn draw_face_grids(
 
 /// Draw wireframe edges on cut-preview fragment faces.
 fn draw_cut_preview_edges(
-    mut gizmos: Gizmos<BrushWireframeGizmoGroup>,
+    mut gizmos: Gizmos<BrushWireframeUnselectedGizmoGroup>,
     settings: Res<OverlaySettings>,
     previews: Query<&CutPreviewFace, With<CutResultPreviewMesh>>,
 ) {
