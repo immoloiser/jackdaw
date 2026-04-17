@@ -1,9 +1,9 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::brush::{self, BrushMeshCache};
-use crate::default_style;
 use crate::selection::Selected;
 use crate::viewport::SceneViewport;
+use crate::{JackdawDrawSystems, default_style};
 use avian3d::parry::math::Point as ParryPoint;
 use avian3d::parry::transformation::convex_hull;
 use bevy::prelude::*;
@@ -26,10 +26,7 @@ impl Plugin for ViewportOverlaysPlugin {
             )
             .add_systems(
                 PostUpdate,
-                draw_selection_bounding_boxes
-                    .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
-                    .after(bevy::transform::TransformSystems::Propagate)
-                    .run_if(in_state(crate::AppState::Editor)),
+                draw_selection_bounding_boxes.in_set(JackdawDrawSystems),
             )
             .add_systems(
                 PostUpdate,
@@ -45,9 +42,7 @@ impl Plugin for ViewportOverlaysPlugin {
             )
             .add_systems(
                 PostUpdate,
-                (draw_coordinate_indicator, draw_navmesh_region_bounds)
-                    .after(bevy::transform::TransformSystems::Propagate)
-                    .run_if(in_state(crate::AppState::Editor)),
+                (draw_coordinate_indicator, draw_navmesh_region_bounds).in_set(JackdawDrawSystems),
             );
     }
 }
@@ -67,7 +62,11 @@ pub struct OverlaySettings {
     pub show_coordinate_indicator: bool,
     pub bounding_box_mode: BoundingBoxMode,
     pub show_face_grid: bool,
+    /// Whether all visible brushes should show a wireframe outline.
     pub show_brush_wireframe: bool,
+    /// Whether all visible brushes should show an outline.
+    /// Note that regardless of this setting, the current selection will always show an outline.
+    pub show_brush_outline: bool,
     pub show_alignment_guides: bool,
 }
 
@@ -78,7 +77,8 @@ impl Default for OverlaySettings {
             show_coordinate_indicator: true,
             bounding_box_mode: BoundingBoxMode::default(),
             show_face_grid: true,
-            show_brush_wireframe: true,
+            show_brush_wireframe: false,
+            show_brush_outline: true,
             show_alignment_guides: true,
         }
     }

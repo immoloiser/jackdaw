@@ -62,6 +62,10 @@ use selection::Selection;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EditorInteraction;
 
+/// System set for drawing systems. Scheduled in [`PostUpdate`] after all propagation sets.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct JackdawDrawSystems;
+
 /// Run condition: returns `true` when no `EditorDialog` entity exists.
 pub fn no_dialog_open(dialogs: Query<(), With<EditorDialog>>) -> bool {
     dialogs.is_empty()
@@ -160,6 +164,13 @@ impl Plugin for EditorPlugin {
                 EditorInteraction
                     .run_if(in_state(AppState::Editor))
                     .run_if(no_dialog_open),
+            )
+            .configure_sets(
+                PostUpdate,
+                JackdawDrawSystems
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                    .run_if(in_state(crate::AppState::Editor)),
             )
             .insert_resource(UiTheme(create_dark_theme()))
             .init_resource::<layout::ActiveDocument>()
@@ -1795,6 +1806,7 @@ fn populate_menu(world: &mut World) {
                     ("view.bounding_box_mode", "Cycle Bounding Box Mode"),
                     ("view.face_grid", "Toggle Face Grid"),
                     ("view.brush_wireframe", "Toggle Brush Wireframe"),
+                    ("view.show_brush_outline", "Toggle Brush Outline"),
                     ("view.alignment_guides", "Toggle Alignment Guides"),
                     ("view.collider_gizmos", "Toggle Collider Gizmos"),
                     ("view.hierarchy_arrows", "Toggle Hierarchy Arrows"),
@@ -1985,6 +1997,12 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
             commands.queue(|world: &mut World| {
                 let mut settings = world.resource_mut::<viewport_overlays::OverlaySettings>();
                 settings.show_brush_wireframe = !settings.show_brush_wireframe;
+            });
+        }
+        "view.show_brush_outline" => {
+            commands.queue(|world: &mut World| {
+                let mut settings = world.resource_mut::<viewport_overlays::OverlaySettings>();
+                settings.show_brush_outline = !settings.show_brush_outline;
             });
         }
         "view.alignment_guides" => {

@@ -1,4 +1,7 @@
-use bevy::prelude::Color;
+use bevy::{
+    gizmos::config::{GizmoLineConfig, GizmoLineJoint, GizmoLineStyle},
+    prelude::Color,
+};
 
 // ── Axis colors (Blender default theme, X = red, Y = green, Z = blue) ──
 pub const AXIS_X: Color = Color::srgba(1.0, 0.2, 0.32, 0.6);
@@ -8,16 +11,32 @@ pub const AXIS_X_BRIGHT: Color = Color::srgba(1.0, 0.2, 0.32, 1.0);
 pub const AXIS_Y_BRIGHT: Color = Color::srgba(0.545, 0.863, 0.0, 1.0);
 pub const AXIS_Z_BRIGHT: Color = Color::srgba(0.157, 0.565, 1.0, 1.0);
 
+// ── Brush wireframe + outline ──
+pub const WIREFRAME_OUTLINE_SELECTED: Color = Color::srgb(0.133, 0.827, 0.933);
+pub const WIREFRAME_OUTLINE_SELECTED_CLIP: Color = Color::srgba(0.133, 0.827, 0.933, 0.25);
+pub const WIREFRAME_OUTLINE_GROUP_EDIT: Color = Color::srgba(0.133, 0.827, 0.933, 0.35);
+pub const WIREFRAME_OUTLINE_UNSELECTED: Color = Color::srgba(0.420, 0.447, 0.502, 0.5);
+pub const WIREFRAME_OUTLINE_CUT_PREVIEW: Color = Color::srgba(0.133, 0.827, 0.933, 0.25);
+
 // ── Brush wireframe ──
-pub const WIREFRAME_SELECTED: Color = Color::srgb(0.133, 0.827, 0.933);
-pub const WIREFRAME_SELECTED_CLIP: Color = Color::srgba(0.133, 0.827, 0.933, 0.25);
-pub const WIREFRAME_GROUP_EDIT: Color = Color::srgba(0.133, 0.827, 0.933, 0.35);
-pub const WIREFRAME_UNSELECTED: Color = Color::srgba(0.420, 0.447, 0.502, 0.5);
-pub const WIREFRAME_CUT_PREVIEW: Color = Color::srgba(0.133, 0.827, 0.933, 0.25);
+pub const WIREFRAME_LINE: GizmoLineConfig = GizmoLineConfig {
+    width: 1.0,
+    ..DEFAULT_LINE_CONFIG
+};
+
+// ── Brush outline ──
+pub const OUTLINE_LINE: GizmoLineConfig = GizmoLineConfig {
+    width: 2.0,
+    ..DEFAULT_LINE_CONFIG
+};
 
 // ── Face grid ──
 pub const FACE_GRID_SELECTED: Color = Color::srgba(0.294, 0.333, 0.388, 0.2);
 pub const FACE_GRID_UNSELECTED: Color = Color::srgba(0.294, 0.333, 0.388, 0.1);
+pub const FACE_GRID_LINE: GizmoLineConfig = GizmoLineConfig {
+    width: 1.0,
+    ..DEFAULT_LINE_CONFIG
+};
 
 // ── Selection & bounding boxes ──
 pub const SELECTION_BBOX: Color = Color::srgba(1.0, 1.0, 0.0, 0.8);
@@ -98,3 +117,12 @@ pub const INSPECTOR_AXIS_X: Color = Color::srgb(0.8, 0.3, 0.3);
 pub const INSPECTOR_AXIS_Y: Color = Color::srgb(0.3, 0.7, 0.3);
 pub const INSPECTOR_AXIS_Z: Color = Color::srgb(0.3, 0.5, 0.8);
 pub const INSPECTOR_OVERRIDE: Color = Color::srgb(1.0, 0.6, 0.3);
+
+// ── General ──
+/// `Default::default()` is non-const, so we have to make our own.
+pub const DEFAULT_LINE_CONFIG: GizmoLineConfig = GizmoLineConfig {
+    width: 2.0,
+    perspective: false,
+    style: GizmoLineStyle::Solid,
+    joints: GizmoLineJoint::None,
+};
