@@ -4,7 +4,7 @@ use bevy::{
     render::render_resource::TextureFormat,
 };
 
-use crate::colors;
+use crate::default_style;
 
 #[derive(Component)]
 pub struct PreviewSphere;
@@ -104,7 +104,7 @@ pub fn setup_material_preview_scene(
         Camera {
             order: -1,
             is_active: false,
-            clear_color: ClearColorConfig::Custom(colors::MATERIAL_PREVIEW_BG),
+            clear_color: ClearColorConfig::Custom(default_style::MATERIAL_PREVIEW_BG),
             ..default()
         },
         RenderTarget::Image(preview_image_handle.into()),

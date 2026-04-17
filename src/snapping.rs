@@ -5,7 +5,7 @@ use bevy::{
 };
 use bevy_infinite_grid::{InfiniteGrid, InfiniteGridSettings};
 
-use crate::colors;
+use crate::default_style;
 
 pub struct SnappingPlugin;
 
@@ -42,10 +42,10 @@ impl Default for GridSettings {
         Self {
             visible: true,
             scale: 4.0,
-            major_line_color: colors::GRID_MAJOR_LINE,
-            minor_line_color: colors::GRID_MINOR_LINE,
-            x_axis_color: colors::AXIS_X,
-            z_axis_color: colors::AXIS_Z,
+            major_line_color: default_style::GRID_MAJOR_LINE,
+            minor_line_color: default_style::GRID_MINOR_LINE,
+            x_axis_color: default_style::AXIS_X,
+            z_axis_color: default_style::AXIS_Z,
             fadeout_distance: 100.0,
         }
     }

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use jackdaw_jsn::BrushGroup;
 
 use crate::brush::{Brush, BrushEditMode, BrushMeshCache, EditMode};
-use crate::colors;
+use crate::default_style;
 use crate::draw_brush::{CutPreviewFace, CutPreviewHidden, CutResultPreviewMesh};
 use crate::selection::Selected;
 use crate::snapping::SnapSettings;
@@ -101,20 +101,20 @@ fn draw_brush_edges(
 
         let color: Color = if is_selected {
             if in_clip_mode {
-                colors::WIREFRAME_SELECTED_CLIP
+                default_style::WIREFRAME_SELECTED_CLIP
             } else {
-                colors::WIREFRAME_SELECTED
+                default_style::WIREFRAME_SELECTED
             }
         } else if in_active_group {
-            colors::WIREFRAME_GROUP_EDIT
+            default_style::WIREFRAME_GROUP_EDIT
         } else if parent_selected {
             if in_clip_mode {
-                colors::WIREFRAME_SELECTED_CLIP
+                default_style::WIREFRAME_SELECTED_CLIP
             } else {
-                colors::WIREFRAME_SELECTED
+                default_style::WIREFRAME_SELECTED
             }
         } else {
-            colors::WIREFRAME_UNSELECTED
+            default_style::WIREFRAME_UNSELECTED
         };
 
         // Determine if we should hide cap-only edges (internal cut boundaries)
@@ -201,9 +201,9 @@ fn draw_face_grids(
                 .is_ok_and(|child_of| selected_query.contains(child_of.0));
         let effectively_selected = is_selected || parent_selected;
         let color = if effectively_selected {
-            colors::FACE_GRID_SELECTED
+            default_style::FACE_GRID_SELECTED
         } else {
-            colors::FACE_GRID_UNSELECTED
+            default_style::FACE_GRID_UNSELECTED
         };
         for (face_idx, face_data) in brush.faces.iter().enumerate() {
             if face_data.material == Handle::default() {
@@ -312,7 +312,7 @@ fn draw_cut_preview_edges(
         return;
     }
 
-    let color: Color = colors::WIREFRAME_CUT_PREVIEW;
+    let color: Color = default_style::WIREFRAME_CUT_PREVIEW;
 
     for face in &previews {
         if face.is_default_material || face.is_cap {
@@ -342,7 +342,7 @@ fn draw_cut_preview_grids(
     }
 
     let grid_size = snap.grid_size();
-    let color = colors::FACE_GRID_SELECTED;
+    let color = default_style::FACE_GRID_SELECTED;
 
     for face in &previews {
         if face.is_default_material || face.is_cap {

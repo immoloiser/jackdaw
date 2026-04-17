@@ -11,7 +11,7 @@ use bevy::{
 
 use super::{BrushFaceEntity, BrushMaterialPalette, BrushMeshCache, BrushPreview};
 use crate::NonSerializable;
-use crate::colors;
+use crate::default_style;
 use crate::draw_brush::DrawBrushState;
 use crate::selection::Selected;
 use jackdaw_geometry::{
@@ -23,7 +23,7 @@ pub(super) fn setup_default_materials(
     mut images: ResMut<Assets<Image>>,
     mut palette: ResMut<BrushMaterialPalette>,
 ) {
-    let defaults = colors::BRUSH_PALETTE;
+    let defaults = default_style::BRUSH_PALETTE;
     for color in defaults {
         palette.materials.push(materials.add(StandardMaterial {
             base_color: color.with_alpha(1.0),
@@ -63,21 +63,21 @@ pub(super) fn setup_default_materials(
     let uv_tile = Affine2::from_scale(Vec2::splat(2.0));
 
     palette.default_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE.with_alpha(colors::DEFAULT_MATERIAL_ALPHA),
+        base_color: Color::WHITE.with_alpha(default_style::DEFAULT_MATERIAL_ALPHA),
         base_color_texture: Some(grid_handle.clone()),
         alpha_mode: AlphaMode::Blend,
         uv_transform: uv_tile,
         ..default()
     });
     palette.default_selected_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE.with_alpha(colors::DEFAULT_MATERIAL_SELECTED_ALPHA),
+        base_color: Color::WHITE.with_alpha(default_style::DEFAULT_MATERIAL_SELECTED_ALPHA),
         base_color_texture: Some(grid_handle.clone()),
         alpha_mode: AlphaMode::Blend,
         uv_transform: uv_tile,
         ..default()
     });
     palette.default_preview_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE.with_alpha(colors::DEFAULT_MATERIAL_PREVIEW_ALPHA),
+        base_color: Color::WHITE.with_alpha(default_style::DEFAULT_MATERIAL_PREVIEW_ALPHA),
         base_color_texture: Some(grid_handle),
         alpha_mode: AlphaMode::Blend,
         uv_transform: uv_tile,

@@ -4,7 +4,7 @@ use super::interaction::{
     BrushDragState, EdgeDragState, FaceExtrudeMode, VertexDragConstraint, VertexDragState,
 };
 use super::{BrushEditMode, BrushMeshCache, BrushSelection, EditMode};
-use crate::colors;
+use crate::default_style;
 use crate::face_grid::BrushEdgeGizmoGroup;
 use jackdaw_jsn::Brush;
 
@@ -31,8 +31,8 @@ pub(super) fn draw_brush_edit_gizmos(
                         && brush_selection.entity == Some(hover_entity);
                     if !is_selected {
                         let color = match hover.intent {
-                            super::HoverIntent::PushPull => colors::HOVER_FACE_PUSH_PULL,
-                            super::HoverIntent::Extend => colors::HOVER_FACE_EXTEND,
+                            super::HoverIntent::PushPull => default_style::HOVER_FACE_PUSH_PULL,
+                            super::HoverIntent::Extend => default_style::HOVER_FACE_EXTEND,
                         };
                         for i in 0..polygon.len() {
                             let a = brush_global.transform_point(cache.vertices[polygon[i]]);
@@ -93,9 +93,9 @@ pub(super) fn draw_brush_edit_gizmos(
             let wa = brush_global.transform_point(cache.vertices[a]);
             let wb = brush_global.transform_point(cache.vertices[b]);
             let color = if selected {
-                colors::EDIT_VERTEX_SELECTED
+                default_style::EDIT_VERTEX_SELECTED
             } else {
-                colors::EDIT_EDGE
+                default_style::EDIT_EDGE
             };
             gizmos.line(wa, wb, color);
         }
@@ -104,9 +104,9 @@ pub(super) fn draw_brush_edit_gizmos(
         for (vi, v) in cache.vertices.iter().enumerate() {
             let world_pos = brush_global.transform_point(*v);
             let color = if brush_selection.vertices.contains(&vi) {
-                colors::EDIT_VERTEX_SELECTED
+                default_style::EDIT_VERTEX_SELECTED
             } else {
-                colors::EDIT_VERTEX
+                default_style::EDIT_VERTEX
             };
             gizmos.sphere(Isometry3d::from_translation(world_pos), 0.04, color);
         }
@@ -125,7 +125,7 @@ pub(super) fn draw_brush_edit_gizmos(
                     let a = brush_global.transform_point(cache.vertices[polygon[i]]);
                     let b = brush_global
                         .transform_point(cache.vertices[polygon[(i + 1) % polygon.len()]]);
-                    gizmos.line(a, b, colors::EDIT_VERTEX_SELECTED);
+                    gizmos.line(a, b, default_style::EDIT_VERTEX_SELECTED);
                 }
                 // Draw the face normal from centroid
                 let centroid: Vec3 = polygon.iter().map(|&vi| cache.vertices[vi]).sum::<Vec3>()
@@ -137,7 +137,7 @@ pub(super) fn draw_brush_edit_gizmos(
                 gizmos.arrow(
                     world_centroid,
                     world_centroid + world_normal * 0.5,
-                    colors::FACE_NORMAL_ARROW,
+                    default_style::FACE_NORMAL_ARROW,
                 );
             }
         }
@@ -149,7 +149,7 @@ pub(super) fn draw_brush_edit_gizmos(
         let depth = face_drag.extend_depth;
         let normal = face_drag.extend_face_normal;
         let offset = normal * depth;
-        let preview_color = colors::FACE_EXTRUDE_PREVIEW;
+        let preview_color = default_style::FACE_EXTRUDE_PREVIEW;
 
         if polygon.len() >= 3 {
             // Base polygon edges
@@ -182,9 +182,9 @@ pub(super) fn draw_brush_edit_gizmos(
     if let Some(constraint) = active_constraint {
         if constraint != VertexDragConstraint::Free {
             let (axis_dir, color) = match constraint {
-                VertexDragConstraint::AxisX => (Vec3::X, colors::AXIS_X),
-                VertexDragConstraint::AxisY => (Vec3::Y, colors::AXIS_Y),
-                VertexDragConstraint::AxisZ => (Vec3::Z, colors::AXIS_Z),
+                VertexDragConstraint::AxisX => (Vec3::X, default_style::AXIS_X),
+                VertexDragConstraint::AxisY => (Vec3::Y, default_style::AXIS_Y),
+                VertexDragConstraint::AxisZ => (Vec3::Z, default_style::AXIS_Z),
                 VertexDragConstraint::Free => unreachable!(),
             };
             let (_, brush_rot, _) = brush_global.to_scale_rotation_translation();

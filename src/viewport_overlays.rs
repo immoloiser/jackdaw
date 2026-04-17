@@ -1,7 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::brush::{self, BrushMeshCache};
-use crate::colors;
+use crate::default_style;
 use crate::selection::Selected;
 use crate::viewport::SceneViewport;
 use avian3d::parry::math::Point as ParryPoint;
@@ -107,7 +107,7 @@ fn draw_selection_bounding_boxes(
         return;
     }
 
-    let color = colors::SELECTION_BBOX;
+    let color = default_style::SELECTION_BBOX;
 
     for (entity, global_tf, maybe_brush_cache, inherited_vis) in &selected {
         if !inherited_vis.get() {
@@ -279,9 +279,9 @@ pub(crate) fn collect_descendant_mesh_world_vertices(
 /// Bright bounding-box color when selected, dim marker color otherwise.
 fn marker_color(is_selected: bool) -> Color {
     if is_selected {
-        colors::SELECTION_BBOX
+        default_style::SELECTION_BBOX
     } else {
-        colors::ENTITY_MARKER_UNSELECTED
+        default_style::ENTITY_MARKER_UNSELECTED
     }
 }
 
@@ -490,9 +490,9 @@ fn draw_empty_entity_marker(
 
 fn spawn_axis_labels(mut commands: Commands, viewport_entity: Single<Entity, With<SceneViewport>>) {
     let labels = [
-        ("X", colors::AXIS_X_BRIGHT),
-        ("Y", colors::AXIS_Y_BRIGHT),
-        ("Z", colors::AXIS_Z_BRIGHT),
+        ("X", default_style::AXIS_X_BRIGHT),
+        ("Y", default_style::AXIS_Y_BRIGHT),
+        ("Z", default_style::AXIS_Z_BRIGHT),
     ];
     let mut entities = [Entity::PLACEHOLDER; 3];
     for (i, (letter, color)) in labels.iter().enumerate() {
@@ -563,7 +563,11 @@ fn draw_coordinate_indicator(
     let size = half_height * 0.07;
 
     let axes = [Vec3::X, Vec3::Y, Vec3::Z];
-    let axis_colors = [colors::AXIS_X, colors::AXIS_Y, colors::AXIS_Z];
+    let axis_colors = [
+        default_style::AXIS_X,
+        default_style::AXIS_Y,
+        default_style::AXIS_Z,
+    ];
 
     for (axis, color) in axes.iter().zip(axis_colors.iter()) {
         gizmos.line(indicator_pos, indicator_pos + *axis * size, *color);
@@ -598,7 +602,7 @@ fn draw_navmesh_region_bounds(
     mut gizmos: Gizmos,
     regions: Query<&GlobalTransform, With<jackdaw_jsn::NavmeshRegion>>,
 ) {
-    let color = colors::NAVMESH_REGION_BOUNDS;
+    let color = default_style::NAVMESH_REGION_BOUNDS;
     for global_tf in &regions {
         let transform = global_tf.compute_transform();
         gizmos.cube(transform, color);
