@@ -120,13 +120,12 @@ pub enum OperatorResult {
 
 /// Resource operator systems use to record `EditorCommand`s for undo.
 ///
-/// The dispatcher calls [`Self::prepare`] before running the operator and
-/// [`Self::take`] after. During the operator's execute/invoke system, the
-/// operator pushes commands via [`Self::record`]; the command's `execute`
-/// has already been run by the caller (or is implicit in how the system
-/// modified state).
+/// Operators call [`Self::record`] from their execute/invoke system.
+/// The dispatcher handles preparing and draining the buffer around each
+/// invocation. The command's `execute` must already have been run by
+/// the caller (or be implicit in how the system modified state).
 ///
-/// All scene mutations should go through an `EditorCommand`. Operators never
+/// All scene mutations go through an `EditorCommand`. Operators never
 /// mutate `SceneJsnAst` directly.
 #[derive(Resource, Default)]
 pub struct OperatorCommandBuffer {
