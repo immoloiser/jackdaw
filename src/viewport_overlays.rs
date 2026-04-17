@@ -74,7 +74,7 @@ pub struct OverlaySettings {
 impl Default for OverlaySettings {
     fn default() -> Self {
         Self {
-            show_bounding_boxes: true,
+            show_bounding_boxes: false,
             show_coordinate_indicator: true,
             bounding_box_mode: BoundingBoxMode::default(),
             show_face_grid: true,
