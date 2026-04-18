@@ -43,10 +43,29 @@ fn can_run_extension() {
     let mut app = headless_app();
     app.register_extension::<SampleExtension>();
     app.finish();
+    // first update sets the extension up
+    // todo: maybe do this in `Startup`?
+    app.update();
+    for _ in 0..10 {
+        let result = app.world_mut().call_operator(SampleExtension::OP).unwrap();
+        assert_eq!(result, OperatorResult::Finished);
+        app.update();
+    }
+}
+
+#[test]
+fn can_call_operator() {
+    let mut app = headless_app();
+    app.register_extension::<SampleExtension>();
+    app.finish();
 }
 
 #[derive(Default)]
 pub struct SampleExtension;
+
+impl SampleExtension {
+    const OP: &'static str = "sample.hello";
+}
 
 impl JackdawExtension for SampleExtension {
     fn name(&self) -> &str {
@@ -59,7 +78,7 @@ impl JackdawExtension for SampleExtension {
 
     fn register(&self, ctx: &mut ExtensionContext) {
         ctx.register_window(WindowDescriptor {
-            id: "sample.hello".into(),
+            id: Self::OP.into(),
             name: "Hello Extension".into(),
             icon: None,
             default_area: None,
@@ -88,6 +107,7 @@ fn build_hello_panel(world: &mut World, parent: Entity) {
 pub struct SampleContext;
 
 #[operator(
+    // TODO: replace with `SampleExtension::OP`
     id = "sample.hello",
     label = "Hello",
     description = "Logs a hello message",
