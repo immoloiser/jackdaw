@@ -1,6 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::brush::{self, BrushMeshCache};
+use crate::entity_ops::EmptyEntity;
 use crate::selection::Selected;
 use crate::viewport::SceneViewport;
 use crate::{JackdawDrawSystems, default_style};
@@ -451,10 +452,7 @@ fn draw_camera_gizmo(
 fn draw_empty_entity_marker(
     mut gizmos: Gizmos,
     settings: Res<OverlaySettings>,
-    query: Query<
-        (&GlobalTransform, &InheritedVisibility, Has<Selected>),
-        With<crate::entity_ops::EmptyEntity>,
-    >,
+    query: Query<(&GlobalTransform, &InheritedVisibility, Has<Selected>), With<EmptyEntity>>,
 ) {
     if !settings.show_bounding_boxes {
         return;
