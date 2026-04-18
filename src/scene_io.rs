@@ -1516,13 +1516,9 @@ fn do_new_scene(world: &mut World) {
     info!("New scene created");
 }
 
-/// Spawn default lighting for a new/empty scene (Sun directional light + ambient).
+/// Spawn default lighting for a new/empty scene (Sun directional light + no ambient).
 pub fn spawn_default_lighting(world: &mut World) {
-    world.insert_resource(bevy::light::GlobalAmbientLight {
-        color: Color::WHITE,
-        brightness: 400.0,
-        affects_lightmapped_meshes: true,
-    });
+    world.insert_resource(GlobalAmbientLight::NONE);
 
     let sun = world
         .spawn((

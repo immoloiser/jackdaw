@@ -127,7 +127,7 @@ pub(crate) fn setup_viewport(
                     &*assets,
                     "../assets/environment_maps/voortrekker_interior_1k_specular.ktx2"
                 ),
-                intensity: 2000.0,
+                intensity: 500.0,
                 ..default()
             },
             // Needed for translucent materials to work correctly
