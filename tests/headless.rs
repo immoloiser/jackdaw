@@ -67,22 +67,12 @@ fn can_call_operator() {
         .count();
     // TODO: why is this panel not spawned?
     assert_eq!(amount_of_panels, 0);
-    let amount_of_markers = app
-        .world_mut()
-        .query_filtered::<(), With<Marker>>()
-        .iter(app.world())
-        .count();
-    assert_eq!(amount_of_markers, 0);
+    assert!(!app.world_mut().contains_resource::<Marker>());
 
     let result = app.world_mut().call_operator(SampleExtension::OP).unwrap();
     assert_eq!(result, OperatorResult::Finished);
 
-    let amount_of_markers = app
-        .world_mut()
-        .query_filtered::<(), With<Marker>>()
-        .iter(app.world())
-        .count();
-    assert_eq!(amount_of_markers, 1);
+    assert!(app.world_mut().contains_resource::<Marker>());
 }
 
 #[derive(Default)]
@@ -123,11 +113,11 @@ pub struct SampleContext;
     name = "SpawnMarkerOp"
 )]
 fn spawn_marker(mut commands: Commands) -> OperatorResult {
-    commands.spawn(Marker);
+    commands.init_resource::<Marker>();
     OperatorResult::Finished
 }
 
-#[derive(Component)]
+#[derive(Resource, Default)]
 struct Marker;
 
 #[derive(Component)]
