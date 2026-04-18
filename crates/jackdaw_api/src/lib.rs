@@ -125,7 +125,8 @@ pub trait JackdawExtension: Send + Sync + 'static + DynJackdawExtension {
     ///
     /// Defaults to no-op; override only if the extension adds BEI
     /// contexts.
-    fn register_input_contexts(&self, _app: &mut App) {}
+    #[expect(unused_variables, reason = "The default implementation does nothing")]
+    fn register_input_contexts(&self, app: &mut App) {}
 
     /// Main registration logic. Called each time the extension is
     /// enabled. Spawn operators, windows, BEI action entities, and any
@@ -137,7 +138,8 @@ pub trait JackdawExtension: Send + Sync + 'static + DynJackdawExtension {
     /// Child-entity cleanup handles registered windows, operators, BEI
     /// contexts, and observers automatically. Override only for non-ECS
     /// state (file handles, network sessions, and the like).
-    fn unregister(&self, _world: &mut World, _extension_entity: Entity) {}
+    #[expect(unused_variables, reason = "The default implementation does nothing")]
+    fn unregister(&self, world: &mut World, extension_entity: Entity) {}
 }
 
 /// Allows access to the extension's static methods via a dynamic dispatch.
