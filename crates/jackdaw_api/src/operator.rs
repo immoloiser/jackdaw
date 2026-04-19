@@ -20,7 +20,7 @@ pub(super) fn plugin(app: &mut App) {
 ///
 /// The trait is bounded on [`InputAction`] so the operator type itself
 /// can be used as a BEI action.
-/// Usually you will want to use [`operator`] to define your operator, but it can be manually implemented if needed:
+/// Usually you will want to use [`operator`](crate::prelude::operator) to define your operator, but it can be manually implemented if needed:
 ///
 /// ```rust
 /// use bevy_enhanced_input::prelude::*;
@@ -49,7 +49,6 @@ pub(super) fn plugin(app: &mut App) {
 /// Extensions then bind the operator to a key via pure BEI syntax. Use
 /// BEI binding modifiers (`Press`, `Release`, `Hold`) when specific
 /// input timing is needed. See the [jackdaw_api documentation](crate).
-/// ```
 pub trait Operator: InputAction + 'static {
     const ID: &'static str;
     const LABEL: &'static str;
