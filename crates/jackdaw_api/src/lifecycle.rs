@@ -48,20 +48,20 @@ pub struct Extension {
 /// `On<Remove, OperatorEntity>` unregisters those systems when this entity
 /// despawns, and keeps the [`OperatorIndex`] in sync.
 #[derive(Component, Clone)]
-pub struct OperatorEntity {
-    pub id: &'static str,
-    pub label: &'static str,
+pub(crate) struct OperatorEntity {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
     #[expect(dead_code, reason = "This should go into the UI eventually")]
-    pub description: &'static str,
-    pub execute: SystemId<In<CustomProperties>, OperatorResult>,
-    pub invoke: SystemId<In<CustomProperties>, OperatorResult>,
+    pub(crate) description: &'static str,
+    pub(crate) execute: SystemId<In<CustomProperties>, OperatorResult>,
+    pub(crate) invoke: SystemId<In<CustomProperties>, OperatorResult>,
     /// Optional system that returns whether the operator can run in
     /// the current editor state. Equivalent to Blender's `poll`.
-    pub availability_check: Option<SystemId<(), bool>>,
+    pub(crate) availability_check: Option<SystemId<(), bool>>,
     /// Mirrors [`crate::Operator::MODAL`]. Set at registration so the
     /// dispatcher can enter modal mode without re-resolving the generic
     /// operator type.
-    pub modal: bool,
+    pub(crate) modal: bool,
 }
 
 /// Tracks the currently-active modal operator. Exactly zero or one is
@@ -72,7 +72,7 @@ pub struct OperatorEntity {
 /// the dispatcher diffs it against a fresh snapshot and pushes a single
 /// undo entry, so the entire modal session rolls up into one Ctrl+Z.
 #[derive(Resource, Default)]
-pub struct ActiveModalOperator {
+pub(crate) struct ActiveModalOperator {
     pub(crate) id: Option<&'static str>,
     pub(crate) operator_entity: Option<Entity>,
     pub(crate) invoke_system: Option<SystemId<In<CustomProperties>, OperatorResult>>,
@@ -88,21 +88,21 @@ pub struct ActiveModalOperator {
 /// add-window popup when the extension unloads.
 #[derive(Component, Clone, Debug)]
 pub struct RegisteredWindow {
-    pub id: String,
+    pub(crate) id: String,
 }
 
 /// Marks an entity as tracking a workspace registration.
 #[derive(Component, Clone, Debug)]
-pub struct RegisteredWorkspace {
-    pub id: String,
+pub(crate) struct RegisteredWorkspace {
+    pub(crate) id: String,
 }
 
 /// Marks an entity as tracking a panel-extension registration (a section
 /// injected into an existing panel via `ExtensionContext::extend_window`).
 #[derive(Component, Clone, Debug)]
-pub struct RegisteredPanelExtension {
-    pub panel_id: String,
-    pub section_index: usize,
+pub(crate) struct RegisteredPanelExtension {
+    pub(crate) panel_id: String,
+    pub(crate) section_index: usize,
 }
 
 /// An extension-contributed entry in the editor menu bar.
@@ -126,12 +126,12 @@ pub struct RegisteredMenuEntry {
 /// `index_operator_on_add` / `deindex_operator_on_remove` observers.
 /// Lets the dispatcher resolve an id to a `SystemId` in O(1).
 #[derive(Resource, Default, Deref, DerefMut)]
-pub struct OperatorIndex {
+pub(crate) struct OperatorIndex {
     pub(crate) by_id: HashMap<&'static str, Entity>,
 }
 
 /// Constructor function for an extension. Stored in [`ExtensionCatalog`].
-pub type ExtensionCtor = Arc<dyn Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync>;
+pub(crate) type ExtensionCtor = Arc<dyn Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync>;
 
 /// Registry of all extensions compiled into this build of Jackdaw.
 ///
@@ -167,7 +167,7 @@ impl ExtensionCatalog {
     /// Register a constructor with its declared kind. Most callers
     /// should use [`App::register_extension`] instead, which handles BEI
     /// context registration.
-    pub fn register<F>(&mut self, name: impl Into<String>, kind: ExtensionKind, ctor: F)
+    pub(crate) fn register<F>(&mut self, name: impl Into<String>, kind: ExtensionKind, ctor: F)
     where
         F: Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
     {
@@ -249,7 +249,7 @@ impl ExtensionAppExt for App {
 }
 
 /// Keep [`OperatorIndex`] in sync when an operator entity is spawned.
-pub fn index_operator_on_add(
+pub(crate) fn index_operator_on_add(
     trigger: On<Add, OperatorEntity>,
     operators: Query<&OperatorEntity>,
     mut index: ResMut<OperatorIndex>,
@@ -262,7 +262,7 @@ pub fn index_operator_on_add(
 /// Keep [`OperatorIndex`] in sync and free the operator's `SystemId`s
 /// when its entity is removed, so they don't leak across enable /
 /// disable cycles.
-pub fn deindex_and_cleanup_operator_on_remove(
+pub(crate) fn deindex_and_cleanup_operator_on_remove(
     trigger: On<Remove, OperatorEntity>,
     operators: Query<&OperatorEntity>,
     mut index: ResMut<OperatorIndex>,
@@ -289,7 +289,7 @@ pub fn deindex_and_cleanup_operator_on_remove(
 /// purge it from the live dock tree and every stored workspace tree when
 /// its marker entity despawns, so disabling an extension visibly removes
 /// its windows.
-pub fn cleanup_window_on_remove(
+pub(crate) fn cleanup_window_on_remove(
     trigger: On<Remove, RegisteredWindow>,
     windows: Query<&RegisteredWindow>,
     mut registry: ResMut<jackdaw_panels::WindowRegistry>,
@@ -308,7 +308,7 @@ pub fn cleanup_window_on_remove(
 }
 
 /// Unregister a workspace when its marker entity despawns.
-pub fn cleanup_workspace_on_remove(
+pub(crate) fn cleanup_workspace_on_remove(
     trigger: On<Remove, RegisteredWorkspace>,
     workspaces: Query<&RegisteredWorkspace>,
     mut registry: ResMut<jackdaw_panels::WorkspaceRegistry>,
@@ -320,7 +320,7 @@ pub fn cleanup_workspace_on_remove(
 
 /// Remove a panel extension section from the registry when its marker
 /// entity despawns.
-pub fn cleanup_panel_extension_on_remove(
+pub(crate) fn cleanup_panel_extension_on_remove(
     trigger: On<Remove, RegisteredPanelExtension>,
     registrations: Query<&RegisteredPanelExtension>,
     mut registry: ResMut<crate::PanelExtensionRegistry>,

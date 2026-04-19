@@ -152,8 +152,6 @@ pub struct CallOperatorSettings {
     /// `true`. Set `false` for view-local effects (camera moves,
     /// preview toggles) that should not be undoable.
     pub creates_history_entry: bool,
-    /// The entity to pass to the operator. Default is `None`.
-    pub entity: Option<Entity>,
     pub execution_context: ExecutionContext,
 }
 
@@ -161,7 +159,6 @@ impl Default for CallOperatorSettings {
     fn default() -> Self {
         Self {
             creates_history_entry: true,
-            entity: None,
             execution_context: default(),
         }
     }
@@ -198,23 +195,13 @@ impl std::fmt::Display for CallOperatorError {
 impl std::error::Error for CallOperatorError {}
 
 pub struct OperatorCallBuilder<'a> {
-    pub world: &'a mut World,
-    pub id: Cow<'static, str>,
-    pub params: CustomProperties,
-    pub settings: CallOperatorSettings,
+    world: &'a mut World,
+    id: Cow<'static, str>,
+    params: CustomProperties,
+    settings: CallOperatorSettings,
 }
 
 impl<'a> OperatorCallBuilder<'a> {
-    #[must_use = "Operators must be called with `.call()` to execute them"]
-    pub fn new(world: &'a mut World, id: impl Into<Cow<'static, str>>) -> Self {
-        Self {
-            world,
-            id: id.into(),
-            params: CustomProperties::default(),
-            settings: CallOperatorSettings::default(),
-        }
-    }
-
     #[must_use = "Operators must be called with `.call()` to execute them"]
     pub fn param(
         mut self,
@@ -350,12 +337,12 @@ fn dispatch_operator(
 /// a call chain takes the snapshot; inner operators' mutations roll
 /// into that outer diff.
 #[derive(Resource, Default)]
-pub struct OperatorSession {
-    pub depth: u32,
+pub(crate) struct OperatorSession {
+    pub(crate) depth: u32,
 }
 
 impl OperatorSession {
-    pub fn is_outermost(&self) -> bool {
+    pub(crate) fn is_outermost(&self) -> bool {
         self.depth == 0
     }
 }
@@ -398,7 +385,7 @@ impl EditorCommand for SnapshotDiff {
 /// Tick system added to Update by `ExtensionLoaderPlugin`. Re-runs the
 /// active modal operator's invoke system each frame; exits modal on
 /// `Finished` (committing) or `Cancelled` (discarding).
-pub fn tick_modal_operator(world: &mut World) {
+pub(crate) fn tick_modal_operator(world: &mut World) {
     let Some(invoke) = world.resource::<ActiveModalOperator>().invoke_system else {
         return;
     };

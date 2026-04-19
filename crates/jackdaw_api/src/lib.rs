@@ -16,7 +16,7 @@
 //! // An operator is also a BEI action, so one type covers both.
 //! #[derive(Default, InputAction)]
 //! #[action_output(bool)]
-//! pub struct PlaceCube;
+//! struct PlaceCube;
 //!
 //! impl Operator for PlaceCube {
 //!     const ID: &'static str = "sample.place_cube";
@@ -35,9 +35,9 @@
 //! }
 //!
 //! #[derive(Component, Default)]
-//! pub struct SamplePluginContext;
+//! struct SamplePluginContext;
 //!
-//! pub struct SamplePlugin;
+//! struct SamplePlugin;
 //!
 //! impl JackdawExtension for SamplePlugin {
 //!     fn name(&self) -> &str { "Sample Plugin" }
