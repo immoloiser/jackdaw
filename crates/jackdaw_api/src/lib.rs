@@ -55,10 +55,10 @@
 //! }
 //! ```
 
-mod lifecycle;
-mod operator;
+pub mod lifecycle;
+pub mod operator;
 mod registries;
-mod snapshot;
+pub mod snapshot;
 
 use std::sync::Arc;
 
