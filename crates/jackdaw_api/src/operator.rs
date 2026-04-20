@@ -6,6 +6,7 @@ use bevy_enhanced_input::prelude::InputAction;
 use jackdaw_commands::{CommandHistory, EditorCommand};
 use jackdaw_jsn::PropertyValue;
 
+use crate::lifecycle::ActiveModalQuery;
 use crate::{
     ActiveSnapshotter, SceneSnapshot,
     lifecycle::{ActiveModalOperator, OperatorEntity, OperatorIndex},
@@ -152,7 +153,53 @@ impl OperatorResult {
 /// ```
 pub trait OperatorWorldExt {
     #[must_use = "Operators must be called with `.call()` to execute them"]
-    fn operator<'a>(&'a mut self, id: impl Into<Cow<'static, str>>) -> OperatorCallBuilder<'a>;
+    fn operator<'a>(
+        &'a mut self,
+        id: impl Into<Cow<'static, str>>,
+    ) -> OperatorCallBuilder<'a, World>;
+
+    fn cancel_active_modal(&mut self) -> Result;
+}
+
+impl OperatorWorldExt for World {
+    fn operator<'a>(
+        &'a mut self,
+        id: impl Into<Cow<'static, str>>,
+    ) -> OperatorCallBuilder<'a, World> {
+        OperatorCallBuilder {
+            world_commands: self,
+            id: id.into(),
+            params: OperatorParameters::default(),
+            settings: CallOperatorSettings::default(),
+        }
+    }
+
+    fn cancel_active_modal(&mut self) -> Result {
+        self.run_system_cached(cancel_active_modal)
+            .map_err(From::from)
+    }
+}
+
+pub trait OperatorCommandsExt<'w, 's> {
+    #[must_use = "Operators must be called with `.call()` to execute them"]
+    fn operator<'a>(
+        &'a mut self,
+        id: impl Into<Cow<'static, str>>,
+    ) -> OperatorCallBuilder<'a, Commands<'w, 's>>;
+}
+
+impl<'w, 's> OperatorCommandsExt<'w, 's> for Commands<'w, 's> {
+    fn operator<'a>(
+        &'a mut self,
+        id: impl Into<Cow<'static, str>>,
+    ) -> OperatorCallBuilder<'a, Commands<'w, 's>> {
+        OperatorCallBuilder {
+            world_commands: self,
+            id: id.into(),
+            params: OperatorParameters::default(),
+            settings: CallOperatorSettings::default(),
+        }
+    }
 }
 
 /// Knobs passed to [`OperatorCallBuilder::settings`].
@@ -204,14 +251,15 @@ impl std::fmt::Display for CallOperatorError {
 
 impl std::error::Error for CallOperatorError {}
 
-pub struct OperatorCallBuilder<'a> {
-    world: &'a mut World,
+pub struct OperatorCallBuilder<'a, T> {
+    // Either `World` or `Commands`
+    world_commands: &'a mut T,
     id: Cow<'static, str>,
     params: OperatorParameters,
     settings: CallOperatorSettings,
 }
 
-impl<'a> OperatorCallBuilder<'a> {
+impl<'a, T> OperatorCallBuilder<'a, T> {
     #[must_use = "Operators must be called with `.call()` to execute them"]
     pub fn param(
         mut self,
@@ -227,13 +275,37 @@ impl<'a> OperatorCallBuilder<'a> {
         self.settings = settings;
         self
     }
+}
 
+impl<'a> OperatorCallBuilder<'a, Commands<'_, '_>> {
+    /// Call an operator by id. The availability check runs before the
+    /// invoke system, so validation logic lives only on the operator
+    /// itself.
+    pub fn call(self) {
+        self.world_commands.queue(move |world: &mut World| {
+            world.run_system_cached_with(dispatch_operator, (self.id, self.params, self.settings))
+        });
+    }
+
+    pub fn cancel(self) {
+        self.world_commands.queue(|world: &mut World| {
+            let res: Result = world
+                .run_system_cached(cancel_active_modal)
+                .map_err(BevyError::from);
+            if let Err(err) = res {
+                error!("Failed to cancel active modal: {err}")
+            }
+        });
+    }
+}
+
+impl<'a> OperatorCallBuilder<'a, World> {
     /// Whether the operator would run in the current editor state.
     /// `Ok(true)` if it's ready, `Ok(false)` if not, `Err` for unknown
     /// ids.
     pub fn is_available(self) -> Result<bool, CallOperatorError> {
         let Some(op_entity) = self
-            .world
+            .world_commands
             .resource::<OperatorIndex>()
             .by_id
             .get(self.id.as_ref())
@@ -241,14 +313,18 @@ impl<'a> OperatorCallBuilder<'a> {
         else {
             return Err(CallOperatorError::UnknownId(self.id));
         };
-        let Some(op) = self.world.get::<OperatorEntity>(op_entity).cloned() else {
+        let Some(op) = self
+            .world_commands
+            .get::<OperatorEntity>(op_entity)
+            .cloned()
+        else {
             return Err(CallOperatorError::UnknownId(self.id));
         };
         if op.modal
             && self
-                .world
+                .world_commands
                 .query_filtered::<Entity, With<ActiveModalOperator>>()
-                .iter(self.world)
+                .iter(self.world_commands)
                 .next()
                 .is_some()
         {
@@ -257,7 +333,7 @@ impl<'a> OperatorCallBuilder<'a> {
         let Some(check) = op.availability_check else {
             return Ok(true);
         };
-        self.world
+        self.world_commands
             .run_system(check)
             .map_err(|_| CallOperatorError::NotAvailable)
     }
@@ -267,24 +343,47 @@ impl<'a> OperatorCallBuilder<'a> {
     /// itself.
     pub fn call(self) -> Result<OperatorResult, CallOperatorError> {
         let result = self
-            .world
+            .world_commands
             .run_system_cached_with(dispatch_operator, (self.id, self.params, self.settings));
         match result {
             Ok(result) => result,
             Err(_) => Err(CallOperatorError::ExecuteFailed),
         }
     }
-}
 
-impl OperatorWorldExt for World {
-    fn operator<'a>(&'a mut self, id: impl Into<Cow<'static, str>>) -> OperatorCallBuilder<'a> {
-        OperatorCallBuilder {
-            world: self,
-            id: id.into(),
-            params: OperatorParameters::default(),
-            settings: CallOperatorSettings::default(),
+    /// Checks if an operator is the currently running modal operator.
+    pub fn is_running(self) -> bool {
+        let result = self
+            .world_commands
+            .run_system_cached_with(is_op_running, self.id.clone());
+        match result {
+            Ok(result) => result,
+            Err(_) => {
+                error!(
+                    "Failed to check if operator is running: {}, treating as `false`",
+                    self.id
+                );
+                false
+            }
         }
     }
+
+    /// Calls an operator's cancel system, if one is defined, and stops the execution if it is running as a modal.
+    ///
+    /// In general, calling this only makes sense with a modal operator.
+    pub fn cancel(self) -> Result {
+        self.world_commands
+            .run_system_cached_with(cancel_operator, self.id)
+            .map_err(From::from)
+    }
+}
+
+fn is_op_running(
+    In(id): In<Cow<'static, str>>,
+    world: &mut World,
+    active: &mut SystemState<ActiveModalQuery>,
+) -> bool {
+    active.get(world).is_operator(id)
 }
 
 fn dispatch_operator(
@@ -349,7 +448,10 @@ fn dispatch_operator(
             }
         }
         OperatorResult::Cancelled => {
-            if let Err(err) = world.run_system_cached_with(cancel_operator, op) {
+            let res: Result = world
+                .run_system_cached_with(cancel_operator, op.id.into())
+                .map_err(From::from);
+            if let Err(err) = res {
                 error!("Failed to finalize cancel operator: {err:?}");
             }
         }
@@ -424,21 +526,59 @@ pub(crate) fn tick_modal_operator(
             }
         }
         OperatorResult::Cancelled => {
-            if let Err(err) = world.run_system_cached_with(cancel_operator, op) {
+            // variable needed due to the type system being annoyed with us
+            let res: Result = world
+                .run_system_cached_with(cancel_operator, op.id.into())
+                .map_err(BevyError::from);
+            if let Err(err) = res {
                 error!("Failed to finalize cancel operator: {err:?}");
             }
         }
     }
 }
 
-pub fn cancel_operator(In(op): In<OperatorEntity>, world: &mut World) {
+pub(crate) fn cancel_active_modal(
+    world: &mut World,
+    active: &mut SystemState<ActiveModalQuery>,
+) -> Result {
+    let Some(op) = active.get(world).get_operator().cloned() else {
+        return Ok(());
+    };
+    world
+        .run_system_cached_with(cancel_operator, op.id.into())
+        .map_err(From::from)
+}
+
+pub(crate) fn cancel_operator(
+    In(id): In<Cow<'static, str>>,
+    world: &mut World,
+    ops: &mut QueryState<&OperatorEntity>,
+) -> Result {
+    let Some(op) = ops.iter(world).find(|o| o.id == id).cloned() else {
+        warn!("Tried to cancel non-existent operator: {id}");
+        return Ok(());
+    };
+
+    let mut cancel_err = None;
     if let Some(cancel) = op.cancel {
         if let Err(err) = world.run_system(cancel) {
             error!("Failed to cancel modal operator {}: {err:?}", op.label);
+            cancel_err = Some(err);
         }
     }
+    let mut finalize_err = None;
     if let Err(err) = world.run_system_cached_with(finalize_modal, false) {
         error!("Failed to finalize modal operator: {err:?}");
+        finalize_err = Some(err);
+    }
+    match (cancel_err, finalize_err) {
+        (Some(cancel_err), Some(_finalize_err)) => {
+            // BevyError cannot accumulate errors, so we gotta pick one :/
+            Err(cancel_err.into())
+        }
+        (Some(cancel_err), None) => Err(BevyError::from(cancel_err)),
+        (None, Some(finalize_err)) => Err(BevyError::from(finalize_err)),
+        (None, None) => Ok(()),
     }
 }
 

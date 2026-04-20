@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use jackdaw_api::{
     lifecycle::{ActiveModalOperator, OperatorEntity},
-    operator::cancel_operator,
     prelude::*,
 };
 
@@ -45,15 +44,6 @@ pub struct CoreExtensionInputContext;
 #[action_output(bool)]
 struct CancelModal;
 
-fn cancel_modal(
-    _: On<Fire<CancelModal>>,
-    op: Single<&OperatorEntity, With<ActiveModalOperator>>,
-    mut commands: Commands,
-) {
-    let op = op.into_inner().clone();
-    commands.queue(move |world: &mut World| {
-        if let Err(err) = world.run_system_cached_with(cancel_operator, op) {
-            error!("Failed to finalize cancel operator: {err:?}");
-        }
-    });
+fn cancel_modal(_: On<Fire<CancelModal>>, mut active: ActiveModalQuery) {
+    active.cancel();
 }

@@ -81,13 +81,13 @@ pub mod prelude {
     pub use crate::{
         ExtensionContext, JackdawExtension, MenuEntryDescriptor, WindowDescriptor,
         lifecycle::{
-            Extension, ExtensionAppExt as _, ExtensionCatalog, ExtensionKind, RegisteredMenuEntry,
-            RegisteredWindow,
+            ActiveModalQuery, Extension, ExtensionAppExt as _, ExtensionCatalog, ExtensionKind,
+            RegisteredMenuEntry, RegisteredWindow,
         },
         macros::operator,
         operator::{
-            CallOperatorSettings, ExecutionContext, Operator, OperatorParameters, OperatorResult,
-            OperatorSystemId, OperatorWorldExt as _,
+            CallOperatorSettings, ExecutionContext, Operator, OperatorCommandsExt as _,
+            OperatorParameters, OperatorResult, OperatorSystemId, OperatorWorldExt as _,
         },
         snapshot::{ActiveSnapshotter, SceneSnapshot, SceneSnapshotter},
     };

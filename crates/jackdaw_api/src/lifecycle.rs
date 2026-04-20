@@ -12,9 +12,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::operator::cancel_active_modal;
 use crate::prelude::*;
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::system::SystemId;
+use bevy::ecs::system::{SystemId, SystemParam};
 use bevy::prelude::*;
 
 pub(super) fn plugin(app: &mut App) {
@@ -100,6 +101,44 @@ pub struct OperatorEntity {
 #[derive(Component)]
 pub struct ActiveModalOperator {
     pub(crate) before_snapshot: Option<Box<dyn SceneSnapshot>>,
+}
+
+/// Convenience [`SystemParam`] for querying the active modal operator.
+#[derive(SystemParam)]
+pub struct ActiveModalQuery<'w, 's> {
+    maybe_modal: Option<Single<'w, 's, (&'static OperatorEntity, &'static ActiveModalOperator)>>,
+    commands: Commands<'w, 's>,
+}
+
+impl<'w, 's> ActiveModalQuery<'w, 's> {
+    pub fn is_modal_running(&self) -> bool {
+        self.maybe_modal.is_some()
+    }
+
+    pub fn is_operator(&self, operator_id: impl AsRef<str>) -> bool {
+        self.get_operator()
+            .is_some_and(|op| op.id == operator_id.as_ref())
+    }
+    pub fn get_operator(&self) -> Option<&OperatorEntity> {
+        self.get_operator_and_modal().map(|m| m.0)
+    }
+    pub fn get_modal(&self) -> Option<&ActiveModalOperator> {
+        self.get_operator_and_modal().map(|m| m.1)
+    }
+    pub fn get_operator_and_modal(&self) -> Option<(&OperatorEntity, &ActiveModalOperator)> {
+        self.maybe_modal.as_ref().map(|m| (m.0, m.1))
+    }
+
+    pub fn cancel(&mut self) {
+        self.commands.queue(|world: &mut World| {
+            let res: Result = world
+                .run_system_cached(cancel_active_modal)
+                .map_err(BevyError::from);
+            if let Err(err) = res {
+                error!("Failed to cancel active modal: {err}")
+            }
+        });
+    }
 }
 
 /// Marks an entity as tracking a dock window registration.
