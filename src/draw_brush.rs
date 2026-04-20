@@ -53,12 +53,6 @@ pub(crate) fn add_to_extension(ctx: &mut ExtensionContext) {
     ctx.add_observer(on_draw_brush);
 }
 
-fn on_draw_brush(_: On<Fire<DrawBrush>>, state: ResMut<DrawBrushState>) {
-    if state.active.is_none() {
-        return;
-    }
-}
-
 #[derive(Component, InputAction)]
 #[action_output(bool)]
 struct DrawBrush;
@@ -115,10 +109,109 @@ pub fn activate_draw_brush_modal(
     OperatorResult::Running
 }
 
-fn cancel_draw_brush_modal() {}
+fn cancel_draw_brush_modal(mut draw_state: ResMut<DrawBrushState>) {
+    draw_state.active = None;
+}
+
+fn on_draw_brush(
+    _: On<Fire<DrawBrush>>,
+    mut draw_state: ResMut<DrawBrushState>,
+    windows: Query<&Window>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainViewportCamera>>,
+    viewport_query: Query<(&ComputedNode, &UiGlobalTransform), With<SceneViewport>>,
+    mut commands: Commands,
+) {
+    let Some(ref mut active) = draw_state.active else {
+        return;
+    };
+
+    // Verify cursor is in viewport
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, _)) = camera_query.single() else {
+        return;
+    };
+    let Some(viewport_cursor) = window_to_viewport_cursor(cursor_pos, camera, &viewport_query)
+    else {
+        return;
+    };
+
+    match active.phase {
+        DrawPhase::PlacingFirstCorner => {
+            if let Some(pos) = active.cursor_on_plane {
+                active.corner1 = pos;
+                active.corner2 = pos;
+                active.phase = DrawPhase::DrawingFootprint;
+                active.drag_footprint = true;
+                active.press_screen_pos = Some(cursor_pos);
+            }
+        }
+        DrawPhase::DrawingFootprint => {
+            if active.drag_footprint {
+                return;
+            }
+            let delta = active.corner2 - active.corner1;
+            if delta.dot(active.plane.axis_u).abs() < MIN_FOOTPRINT_SIZE
+                || delta.dot(active.plane.axis_v).abs() < MIN_FOOTPRINT_SIZE
+            {
+                return;
+            }
+            active.phase = DrawPhase::ExtrudingDepth;
+            active.extrude_start_cursor = viewport_cursor;
+            active.depth = 0.0;
+        }
+        DrawPhase::DrawingRotatedWidth => {
+            if active.polygon_vertices.len() == 4 {
+                let edge1 = (active.polygon_vertices[1] - active.polygon_vertices[0]).length();
+                let edge2 = (active.polygon_vertices[3] - active.polygon_vertices[0]).length();
+                if edge1 >= MIN_FOOTPRINT_SIZE && edge2 >= MIN_FOOTPRINT_SIZE {
+                    active.phase = DrawPhase::ExtrudingDepth;
+                    active.extrude_start_cursor = viewport_cursor;
+                    active.depth = 0.0;
+                }
+            }
+        }
+        DrawPhase::DrawingPolygon => {
+            if let Some(cursor) = active.polygon_cursor {
+                // Accept all vertices, but skip near-duplicates
+                let too_close = active
+                    .polygon_vertices
+                    .iter()
+                    .any(|&v| (v - cursor).length() < 0.05);
+                if !too_close {
+                    active.polygon_vertices.push(cursor);
+                }
+            }
+        }
+        DrawPhase::ExtrudingDepth => {
+            if active.depth.abs() < MIN_EXTRUDE_DEPTH {
+                return; // No depth, keep extruding
+            }
+            let active = active.clone();
+            draw_state.active = None;
+            if !active.polygon_vertices.is_empty() {
+                if active.append_target.is_some() {
+                    append_to_brush(&active, &mut commands);
+                } else {
+                    spawn_polygon_brush(&active, &mut commands);
+                }
+            } else if active.append_target.is_some() {
+                append_to_brush(&active, &mut commands);
+            } else {
+                spawn_drawn_brush(&active, &mut commands);
+            }
+        }
+    }
+}
 
 #[operator(id = "mesh.add_brush")]
 pub fn add_brush(_params: In<OperatorParameters>) -> OperatorResult {
+    // TODO: make this add / finalize the geometry that was previewed by the draw model
+    // The reason for this operator to exist is to be called by user extensions.
     OperatorResult::Finished
 }
 
@@ -798,6 +891,10 @@ fn draw_brush_confirm(
     let Some(ref mut active) = draw_state.active else {
         return;
     };
+    if active.mode == DrawMode::Add {
+        // Already migrated to operator
+        return;
+    }
 
     // Verify cursor is in viewport
     let Ok(window) = windows.single() else {
@@ -868,18 +965,7 @@ fn draw_brush_confirm(
             let active_owned = active.clone();
             match active_owned.mode {
                 DrawMode::Add => {
-                    draw_state.active = None;
-                    if !active_owned.polygon_vertices.is_empty() {
-                        if active_owned.append_target.is_some() {
-                            append_to_brush(&active_owned, &mut commands);
-                        } else {
-                            spawn_polygon_brush(&active_owned, &mut commands);
-                        }
-                    } else if active_owned.append_target.is_some() {
-                        append_to_brush(&active_owned, &mut commands);
-                    } else {
-                        spawn_drawn_brush(&active_owned, &mut commands);
-                    }
+                    unreachable!()
                 }
                 DrawMode::Cut => {
                     subtract_drawn_brush(&active_owned, &mut commands);
@@ -906,6 +992,10 @@ fn draw_brush_cancel(
     let Some(ref mut active) = draw_state.active else {
         return;
     };
+    if active.mode == DrawMode::Add {
+        // Already migrated to operator
+        return;
+    }
 
     // Polygon mode: Enter closes polygon (via convex hull), Backspace removes last vertex
     if active.phase == DrawPhase::DrawingPolygon {

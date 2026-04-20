@@ -293,7 +293,6 @@ fn dispatch_operator(
     active: &mut SystemState<Option<Single<&OperatorEntity, With<ActiveModalOperator>>>>,
 ) -> Result<OperatorResult, CallOperatorError> {
     info!("OPERATOR: {id}");
-    let params = params.into();
 
     let Some(op_entity) = world
         .resource::<OperatorIndex>()
