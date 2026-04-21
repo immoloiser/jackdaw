@@ -72,7 +72,7 @@ impl Default for ResourceId {
 ///
 /// Holds the `SystemId`s that the dispatcher runs. An observer on
 /// `On<Remove, OperatorEntity>` unregisters those systems when this entity
-/// despawns, and keeps the [`OperatorIndex`] in sync.
+/// despawns, and keeps the `OperatorIndex` in sync.
 #[derive(Component, Debug, Clone)]
 pub struct OperatorEntity {
     pub(crate) id: &'static str,
@@ -310,7 +310,7 @@ impl ExtensionAppExt for App {
     }
 }
 
-/// Keep [`OperatorIndex`] in sync when an operator entity is spawned.
+/// Keep `OperatorIndex` in sync when an operator entity is spawned.
 pub(crate) fn index_operator_on_add(
     trigger: On<Add, OperatorEntity>,
     operators: Query<&OperatorEntity>,
@@ -321,7 +321,7 @@ pub(crate) fn index_operator_on_add(
     }
 }
 
-/// Keep [`OperatorIndex`] in sync and free the operator's `SystemId`s
+/// Keep `OperatorIndex` in sync and free the operator's `SystemId`s
 /// when its entity is removed, so they don't leak across enable /
 /// disable cycles.
 pub(crate) fn deindex_and_cleanup_operator_on_remove(
