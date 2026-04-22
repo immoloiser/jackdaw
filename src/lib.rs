@@ -1,3 +1,5 @@
+//! Main crate for the Jackdaw editor.
+//! Usage of this crate is meant for headless operation. If you want to interact with the jackdaw API for extensions, use the `jackdaw_api` crate instead.
 pub mod add_entity_picker;
 pub mod alignment_guides;
 pub mod asset_browser;
@@ -17,8 +19,9 @@ pub mod inspector;
 pub mod keybind_settings;
 pub mod keybinds;
 pub use inspector::{EditorMeta, ReflectEditorMeta};
+pub mod core_extension;
 pub mod ext_build;
-pub mod extension_loader;
+mod extension_lifecycle;
 pub mod extension_watcher;
 pub mod hot_reload;
 pub mod restart;
@@ -60,10 +63,20 @@ use bevy::{
     picking::hover::HoverMap,
     prelude::*,
 };
-use jackdaw_feathers::EditorFeathersPlugin;
+use jackdaw_api::prelude::*;
 use jackdaw_feathers::dialog::EditorDialog;
+use jackdaw_feathers::{EditorFeathersPlugin, tooltip::Tooltip};
 use jackdaw_widgets::menu_bar::MenuAction;
 use selection::Selection;
+use viewable_camera_extension::ViewableCameraExtension;
+
+use crate::builtin_extensions::*;
+
+/// Everything needed to start using Jackdaw.
+pub mod prelude {
+    pub use crate::EditorPlugin;
+    pub use jackdaw_api::prelude::*;
+}
 
 /// System set for all editor interaction systems (input handling, viewport clicks,
 /// gizmo drags, etc.). Automatically disabled when any dialog is open.
@@ -145,7 +158,7 @@ pub struct NonSerializable;
 ///     .run();
 /// ```
 pub struct EditorPlugin {
-    extensions: Vec<(String, jackdaw_api::ExtensionCtor)>,
+    extensions: Vec<std::sync::Arc<dyn Fn() -> Box<dyn jackdaw_api::JackdawExtension> + Send + Sync>>,
     register_builtins: bool,
     dylib_loader: Option<DylibLoaderConfig>,
 }
@@ -173,12 +186,15 @@ impl EditorPlugin {
     }
 
     /// Register a custom extension. May be called any number of times.
-    pub fn with_extension<F>(mut self, name: impl Into<String>, ctor: F) -> Self
+    ///
+    /// The extension's declared name comes from `JackdawExtension::name()`;
+    /// the `_name` argument is kept for backwards compatibility with the
+    /// pre-1.0 API and is ignored.
+    pub fn with_extension<F>(mut self, _name: impl Into<String>, ctor: F) -> Self
     where
         F: Fn() -> Box<dyn jackdaw_api::JackdawExtension> + Send + Sync + 'static,
     {
-        self.extensions
-            .push((name.into(), std::sync::Arc::new(ctor)));
+        self.extensions.push(std::sync::Arc::new(ctor));
         self
     }
 
@@ -254,6 +270,9 @@ impl Plugin for EditorPlugin {
             .add_plugins((
                 FeathersPlugins.build().disable::<InputDispatchPlugin>(),
                 EditorFeathersPlugin,
+                EnhancedInputPlugin,
+            ))
+            .add_plugins((
                 jackdaw_jsn::JsnPlugin {
                     runtime_mesh_rebuild: false,
                 },
@@ -282,6 +301,7 @@ impl Plugin for EditorPlugin {
                 entity_templates::EntityTemplatesPlugin,
                 brush::BrushPlugin,
                 material_preview::MaterialPreviewPlugin,
+                undo_snapshot::plugin,
             ))
             .add_plugins((
                 material_browser::MaterialBrowserPlugin,
@@ -302,7 +322,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(jackdaw_node_graph::NodeGraphPlugin)
             .add_plugins(jackdaw_animation::AnimationPlugin)
             .add_plugins(jackdaw_panels::DockPlugin)
-            .add_plugins(extension_loader::ExtensionLoaderPlugin)
+            .add_plugins(jackdaw_api::ExtensionLoaderPlugin)
             .add_plugins(extension_watcher::ExtensionWatcherPlugin)
             .add_plugins(extensions_dialog::ExtensionsDialogPlugin)
             .add_plugins(hot_reload::HotReloadPlugin)
@@ -350,7 +370,6 @@ impl Plugin for EditorPlugin {
                 (
                     send_scroll_events,
                     layout::update_toolbar_highlights,
-                    layout::update_toolbar_tooltips,
                     layout::update_space_toggle_label,
                     layout::update_edit_tool_highlights,
                     layout::update_active_document_display,
@@ -388,9 +407,10 @@ impl Plugin for EditorPlugin {
         if self.register_builtins {
             register_builtins(app);
         }
-        for (name, ctor) in &self.extensions {
+        use jackdaw_api::lifecycle::ExtensionAppExt as _;
+        for ctor in &self.extensions {
             let ctor = std::sync::Arc::clone(ctor);
-            jackdaw_api::register_extension(app, name, move || (*ctor)());
+            app.register_extension_dynamic(move || (*ctor)());
         }
         if let Some(cfg) = &self.dylib_loader {
             app.add_plugins(jackdaw_loader::DylibLoaderPlugin {
@@ -400,31 +420,20 @@ impl Plugin for EditorPlugin {
             });
         }
 
-        // Must run after every plugin's `finish()`: BEI initializes
-        // `ContextInstances<PreUpdate>` there, and spawning a context
-        // entity before that resource exists panics.
-        app.add_systems(Startup, apply_enabled_extensions_startup);
+        app.add_plugins(extension_lifecycle::plugin);
     }
 }
 
 /// Register the built-in feature-area extensions. Called by
 /// [`EditorPlugin::build`] when `register_builtins` is `true`.
 fn register_builtins(app: &mut App) {
-    jackdaw_api::register_extension(app, "core_windows", || {
-        Box::new(builtin_extensions::CoreWindowsExtension)
-    });
-    jackdaw_api::register_extension(app, "asset_browser", || {
-        Box::new(builtin_extensions::AssetBrowserExtension)
-    });
-    jackdaw_api::register_extension(app, "timeline", || {
-        Box::new(builtin_extensions::TimelineExtension)
-    });
-    jackdaw_api::register_extension(app, "terminal", || {
-        Box::new(builtin_extensions::TerminalExtension)
-    });
-    jackdaw_api::register_extension(app, "inspector", || {
-        Box::new(builtin_extensions::InspectorExtension)
-    });
+    use jackdaw_api::lifecycle::ExtensionAppExt as _;
+    app.add_plugins(core_extension::plugin)
+        .register_extension::<builtin_extensions::CoreWindowsExtension>()
+        .register_extension::<builtin_extensions::AssetBrowserExtension>()
+        .register_extension::<builtin_extensions::TimelineExtension>()
+        .register_extension::<builtin_extensions::TerminalExtension>()
+        .register_extension::<builtin_extensions::InspectorExtension>();
 }
 
 /// Drained once per frame so multiple registrations coalesce into a
@@ -440,40 +449,29 @@ fn rebuild_menu_if_dirty(world: &mut World) {
     populate_menu(world);
 }
 
-fn flag_menu_dirty_on_window_add(
-    _: On<Add, jackdaw_api::RegisteredWindow>,
-    mut dirty: ResMut<MenuBarDirty>,
-) {
+fn flag_menu_dirty_on_window_add(_: On<Add, RegisteredWindow>, mut dirty: ResMut<MenuBarDirty>) {
     dirty.0 = true;
 }
 
 fn flag_menu_dirty_on_window_remove(
-    _: On<Remove, jackdaw_api::RegisteredWindow>,
+    _: On<Remove, RegisteredWindow>,
     mut dirty: ResMut<MenuBarDirty>,
 ) {
     dirty.0 = true;
 }
 
 fn flag_menu_dirty_on_menu_entry_add(
-    _: On<Add, jackdaw_api::RegisteredMenuEntry>,
+    _: On<Add, RegisteredMenuEntry>,
     mut dirty: ResMut<MenuBarDirty>,
 ) {
     dirty.0 = true;
 }
 
 fn flag_menu_dirty_on_menu_entry_remove(
-    _: On<Remove, jackdaw_api::RegisteredMenuEntry>,
+    _: On<Remove, RegisteredMenuEntry>,
     mut dirty: ResMut<MenuBarDirty>,
 ) {
     dirty.0 = true;
-}
-
-/// Enable every catalog entry `resolve_enabled_list` reports as on.
-fn apply_enabled_extensions_startup(world: &mut World) {
-    let to_enable = extensions_config::resolve_enabled_list(world);
-    for name in &to_enable {
-        jackdaw_api::enable_extension(world, name);
-    }
 }
 
 /// Auto-hide unnamed child entities (likely Bevy internals like shadow cascades).
@@ -724,29 +722,19 @@ fn decorate_timeline_tooltips(
     mut commands: Commands,
 ) {
     for e in &play {
-        commands
-            .entity(e)
-            .insert(layout::ToolbarTooltip("Play".into()));
+        commands.entity(e).insert(Tooltip("Play".into()));
     }
     for e in &pause {
-        commands
-            .entity(e)
-            .insert(layout::ToolbarTooltip("Pause".into()));
+        commands.entity(e).insert(Tooltip("Pause".into()));
     }
     for e in &stop {
-        commands
-            .entity(e)
-            .insert(layout::ToolbarTooltip("Stop".into()));
+        commands.entity(e).insert(Tooltip("Stop".into()));
     }
     for e in &new_clip {
-        commands
-            .entity(e)
-            .insert(layout::ToolbarTooltip("New Clip".into()));
+        commands.entity(e).insert(Tooltip("New Clip".into()));
     }
     for e in &new_blend {
-        commands
-            .entity(e)
-            .insert(layout::ToolbarTooltip("New Blend Graph".into()));
+        commands.entity(e).insert(Tooltip("New Blend Graph".into()));
     }
 }
 
@@ -1848,7 +1836,7 @@ fn populate_menu(world: &mut World) {
     let mut ext_menu_entries: std::collections::BTreeMap<String, Vec<(String, String)>> =
         std::collections::BTreeMap::new();
     {
-        let mut q = world.query::<&jackdaw_api::RegisteredMenuEntry>();
+        let mut q = world.query::<&RegisteredMenuEntry>();
         for entry in q.iter(world) {
             if entry.menu == "Add" {
                 continue;
@@ -1856,7 +1844,10 @@ fn populate_menu(world: &mut World) {
             ext_menu_entries
                 .entry(entry.menu.clone())
                 .or_default()
-                .push((format!("op:{}", entry.operator_id), entry.label.clone()));
+                .push((
+                    format!("{OP_PREFIX}{}", entry.operator_id),
+                    entry.label.clone(),
+                ));
         }
         for entries in ext_menu_entries.values_mut() {
             entries.sort_by(|a, b| a.1.cmp(&b.1));
@@ -2286,16 +2277,21 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
                 crate::prefab_picker::open_prefab_picker(world);
             });
         }
-        action if action.starts_with("op:") => {
+        action if action.starts_with(OP_PREFIX) => {
             // Extension-contributed menu entry. The action id is the
             // operator id with an "op:" prefix. Dispatching through the
             // operator system rather than a parallel path keeps
             // behaviour (history entry, poll, modal) identical to
             // keybind-triggered operators.
-            let operator_id = action.strip_prefix("op:").unwrap().to_string();
+            let operator_id = action.strip_prefix(OP_PREFIX).unwrap().to_string();
             commands.queue(move |world: &mut World| {
-                use jackdaw_api::OperatorWorldExt;
-                let _ = world.call_operator(operator_id);
+                world
+                    .operator(operator_id)
+                    .settings(CallOperatorSettings {
+                        execution_context: ExecutionContext::Invoke,
+                        creates_history_entry: true,
+                    })
+                    .call()
             });
         }
         action if action.starts_with("window.") => {
@@ -2316,6 +2312,10 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
         _ => {}
     }
 }
+
+/// TODO: This should not exist. All actions should be operators.
+/// Remove this once the operatorification is done.
+const OP_PREFIX: &str = "op:";
 
 /// Wrap an entity-spawning closure in a `SpawnEntity` command so Ctrl+Z can undo it.
 fn spawn_undoable<F>(world: &mut World, label: &str, spawn: F)

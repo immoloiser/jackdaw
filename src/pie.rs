@@ -25,7 +25,7 @@
 //! transitions without going through a button.
 
 use bevy::prelude::*;
-use jackdaw_api::PlayState;
+use jackdaw_api::pie::PlayState;
 use jackdaw_jsn::SceneJsnAst;
 
 /// Frozen AST captured when the user clicks Play from `Stopped`.

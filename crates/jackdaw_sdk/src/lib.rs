@@ -40,29 +40,19 @@ pub mod prelude {
 }
 
 // The `export_extension!` / `export_game!` macros. Their
-// expansions reference `$crate::ffi::{ExtensionEntry,GameEntry}`
-// and `$crate::JackdawExtension`, where `$crate` resolves to the
-// macro's defining crate (`jackdaw_api`). After `--extern`
-// aliasing, that path becomes `jackdaw_sdk::...`, which is why
-// those items are re-exported at the crate root below.
+// expansions reference `$crate::ffi::…` and
+// `$crate::JackdawExtension`, where `$crate` resolves to the
+// macro's defining crate (`jackdaw_api_internal`).
 pub use jackdaw_api::export_extension;
 pub use jackdaw_api::export_game;
 
-// Re-exports needed by `export_extension!` macro expansion.
-pub use jackdaw_api::JackdawExtension;
-pub use jackdaw_api::ffi;
-
-// Common items extensions reference by full path (e.g.
-// `jackdaw_api::WindowDescriptor`) rather than through the
-// prelude. Keep the list explicit so name collisions between
-// bevy and jackdaw_api surfaces stay visible.
+// Re-exports extension authors reference at the crate root
+// (`use jackdaw_api::WindowDescriptor;`). Curated against
+// `jackdaw_api`'s public surface — internal items stay hidden.
 pub use jackdaw_api::{
-    ActiveModalOperator, CallOperatorError, CallOperatorSettings, Extension, ExtensionCatalog,
-    ExtensionContext, ExtensionKind, ExtensionPoint, HierarchyWindow, InspectorWindow,
-    MenuEntryDescriptor, Operator, OperatorEntity, OperatorIndex, OperatorResult, OperatorSession,
-    OperatorWorldExt, PanelContext, PanelExtensionRegistry, PlayState, RegisteredMenuEntry,
-    RegisteredPanelExtension, RegisteredWindow, RegisteredWorkspace, SectionBuildFn,
-    WindowDescriptor, operator,
+    DynJackdawExtension, ExtensionContext, ExtensionLoaderPlugin, ExtensionPoint, HierarchyWindow,
+    InspectorWindow, JackdawExtension, MenuEntryDescriptor, PanelContext, SectionBuildFn,
+    WindowDescriptor, lifecycle, macros, operator, pie, runtime, snapshot,
 };
 
 // Bevy root surface for extension code that walks bevy paths

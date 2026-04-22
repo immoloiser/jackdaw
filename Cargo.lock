@@ -4516,8 +4516,13 @@ name = "jackdaw_api"
 version = "0.4.0"
 dependencies = [
  "bevy",
+ "bevy_enhanced_input",
  "jackdaw_api_internal",
+ "jackdaw_api_macros",
+ "jackdaw_commands",
  "jackdaw_dylib",
+ "jackdaw_jsn",
+ "jackdaw_panels",
 ]
 
 [[package]]
@@ -4528,6 +4533,7 @@ dependencies = [
  "bevy_enhanced_input",
  "jackdaw_api_macros",
  "jackdaw_commands",
+ "jackdaw_jsn",
  "jackdaw_panels",
 ]
 
@@ -4609,7 +4615,7 @@ version = "0.4.0"
 dependencies = [
  "bevy",
  "dirs",
- "jackdaw_api",
+ "jackdaw_api_internal",
  "libloading",
 ]
 

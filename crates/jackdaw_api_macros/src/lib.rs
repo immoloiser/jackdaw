@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    Expr, ExprLit, ExprPath, ItemFn, Lit, LitBool, LitStr, MetaNameValue, Path, Token,
+    Expr, ExprLit, ExprPath, ItemFn, Lit, LitBool, LitStr, MetaNameValue, Path, Token, Visibility,
     parse_macro_input, punctuated::Punctuated, spanned::Spanned,
 };
 
@@ -20,18 +20,19 @@ use syn::{
 /// Optional keys:
 /// - `description`: long-form description (default `""`)
 /// - `modal`: `bool`, default `false`
-/// - `manual`: `bool`, default `false`. When `true`, no Fire observer
-///   is wired up; callers invoke the operator via
-///   `World::call_operator`.
+/// - `allows_undo`: `bool`, default `true`. When `false`, this operator will never
+///    create an undo history entry.
 /// - `is_available`: path to a Bevy system returning `bool` that
 ///   decides whether the operator can run in the current editor
 ///   state. Runs before the execute system on every
-///   `World::call_operator` and via `World::is_operator_available`.
-///   If `false`, the operator returns `Cancelled` without executing.
+///   `World::operator` and via `World::is_operator_available`.
+///    If that system returns `false`, the operator returns an error without executing.
+/// - `cancel`: path to a Bevy system that is invoked when the
+///    operator is cancelled.
 /// - `name`: override the generated struct name. Default is
 ///   `PascalCase(fn_name) + "Op"`.
 ///
-/// ```ignore
+/// ```rust,ignore
 /// use jackdaw_api::prelude::*;
 ///
 /// fn time_is_running(time: Res<Time>) -> bool {
@@ -39,7 +40,7 @@ use syn::{
 /// }
 ///
 /// #[operator(id = "sample.hello", label = "Hello", is_available = time_is_running)]
-/// fn hello() -> OperatorResult {
+/// fn hello(_: In<OperatorParameters>) -> OperatorResult {
 ///     info!("hello");
 ///     OperatorResult::Finished
 /// }
@@ -54,15 +55,16 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(
         attr with Punctuated::<MetaNameValue, Token![,]>::parse_terminated
     );
-    let item_fn = parse_macro_input!(item as ItemFn);
+    let mut item_fn = parse_macro_input!(item as ItemFn);
 
-    let mut id: Option<LitStr> = None;
-    let mut label: Option<LitStr> = None;
-    let mut description: Option<LitStr> = None;
+    let mut id: Option<Expr> = None;
+    let mut label: Option<Expr> = None;
+    let mut description: Option<Expr> = None;
     let mut modal: bool = false;
-    let mut manual: bool = false;
+    let mut allows_undo: bool = true;
     let mut name_override: Option<String> = None;
     let mut is_available: Option<Path> = None;
+    let mut cancel: Option<Path> = None;
 
     for arg in args {
         let Some(key) = arg.path.get_ident().map(|i| i.to_string()) else {
@@ -70,17 +72,17 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
         match key.as_str() {
             "id" => {
-                if let Some(s) = as_lit_str(&arg.value) {
+                if let Some(s) = as_str_expr(&arg.value) {
                     id = Some(s);
                 }
             }
             "label" => {
-                if let Some(s) = as_lit_str(&arg.value) {
+                if let Some(s) = as_str_expr(&arg.value) {
                     label = Some(s);
                 }
             }
             "description" => {
-                if let Some(s) = as_lit_str(&arg.value) {
+                if let Some(s) = as_str_expr(&arg.value) {
                     description = Some(s);
                 }
             }
@@ -89,9 +91,9 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
                     modal = b.value;
                 }
             }
-            "manual" => {
+            "allows_undo" => {
                 if let Some(b) = as_lit_bool(&arg.value) {
-                    manual = b.value;
+                    allows_undo = b.value;
                 }
             }
             "name" => {
@@ -106,6 +108,18 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
                     return syn::Error::new(
                         arg.value.span(),
                         "`is_available` must be the path of a Bevy system returning `bool`",
+                    )
+                    .into_compile_error()
+                    .into();
+                }
+            }
+            "cancel" => {
+                if let Some(p) = as_path(&arg.value) {
+                    cancel = Some(p);
+                } else {
+                    return syn::Error::new(
+                        arg.value.span(),
+                        "`cancel` must be the path of a Bevy system",
                     )
                     .into_compile_error()
                     .into();
@@ -127,22 +141,21 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
             .into_compile_error()
             .into();
     };
-    let Some(label) = label else {
-        return syn::Error::new(
-            Span::call_site(),
-            "`#[operator]` requires `label = \"...\"`",
-        )
-        .into_compile_error()
-        .into();
-    };
-    let description = description.unwrap_or_else(|| LitStr::new("", Span::call_site()));
+    let label = label.unwrap_or(id.clone());
+    let description = description.unwrap_or_else(|| {
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(LitStr::new("", Span::call_site())),
+            attrs: vec![],
+        })
+    });
 
     let fn_name = &item_fn.sig.ident;
     let struct_name = match name_override {
         Some(n) => format_ident!("{}", n),
         None => format_ident!("{}Op", to_pascal_case(&fn_name.to_string())),
     };
-    let vis = &item_fn.vis;
+    let vis = item_fn.vis.clone();
+    item_fn.vis = Visibility::Inherited;
 
     let availability_impl = is_available.map(|path| {
         quote! {
@@ -154,25 +167,37 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
+    let cancel_impl = cancel.map(|path| {
+        quote! {
+            fn register_cancel(
+                commands: &mut ::bevy::ecs::system::Commands,
+            ) -> ::core::option::Option<::bevy::ecs::system::SystemId<()>> {
+                ::core::option::Option::Some(commands.register_system(#path))
+            }
+        }
+    });
+
     let expanded = quote! {
         #[derive(::core::default::Default, ::bevy_enhanced_input::prelude::InputAction)]
         #[action_output(bool)]
         #vis struct #struct_name;
 
-        impl ::jackdaw_api::Operator for #struct_name {
+        impl ::jackdaw_api::prelude::Operator for #struct_name {
             const ID: &'static str = #id;
             const LABEL: &'static str = #label;
             const DESCRIPTION: &'static str = #description;
             const MODAL: bool = #modal;
-            const MANUAL: bool = #manual;
+            const ALLOWS_UNDO: bool = #allows_undo;
 
             fn register_execute(
                 commands: &mut ::bevy::ecs::system::Commands,
-            ) -> ::bevy::ecs::system::SystemId<(), ::jackdaw_api::OperatorResult> {
+            ) -> ::jackdaw_api::prelude::OperatorSystemId {
                 commands.register_system(#fn_name)
             }
 
             #availability_impl
+
+            #cancel_impl
         }
 
         #item_fn
@@ -189,6 +214,18 @@ fn as_lit_str(expr: &Expr) -> Option<LitStr> {
         Some(s.clone())
     } else {
         None
+    }
+}
+
+fn as_str_expr(expr: &Expr) -> Option<Expr> {
+    match expr {
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(_), ..
+        }) => Some(expr.clone()),
+
+        Expr::Path(_) => Some(expr.clone()),
+
+        _ => None,
     }
 }
 

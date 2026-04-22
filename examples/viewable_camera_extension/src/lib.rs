@@ -13,19 +13,20 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use jackdaw_api::prelude::*;
 
+#[derive(Default)]
 pub struct ViewableCameraExtension;
 
 impl JackdawExtension for ViewableCameraExtension {
-    fn name(&self) -> &str {
-        "viewable_camera"
+    fn name() -> String {
+        "viewable_camera".to_string()
     }
 
-    fn register_input_contexts(&self, app: &mut App) {
+    fn register_input_context(app: &mut App) {
         app.add_input_context::<ViewableCameraContext>();
     }
 
     fn register(&self, ctx: &mut ExtensionContext) {
-        ctx.world().init_resource::<CameraPreviewState>();
+        ctx.init_resource::<CameraPreviewState>();
 
         ctx.register_operator::<PlaceViewableCamera>();
         ctx.register_operator::<ToggleCameraPreview>();
@@ -47,8 +48,7 @@ impl JackdawExtension for ViewableCameraExtension {
         // Exit preview if the previewed camera gets despawned (e.g. the
         // user undoes the placement while preview is active), so the
         // viewport falls back to the editor camera.
-        let ext_entity = ctx.entity();
-        let observer = Observer::new(
+        ctx.add_observer(
             move |trigger: On<Remove, ViewableCamera>,
                   mut state: ResMut<CameraPreviewState>,
                   mut commands: Commands| {
@@ -60,7 +60,6 @@ impl JackdawExtension for ViewableCameraExtension {
                 }
             },
         );
-        ctx.world().spawn((observer, ChildOf(ext_entity)));
     }
 }
 
@@ -90,7 +89,7 @@ struct CameraPreviewState {
     description = "Place a camera at the viewport position",
     name = "PlaceViewableCamera"
 )]
-fn place_viewable_camera(world: &mut World) -> OperatorResult {
+fn place_viewable_camera(_: In<OperatorParameters>, world: &mut World) -> OperatorResult {
     // Match the editor camera's transform so "look through" feels
     // natural on the first toggle.
     let spawn_transform = find_editor_camera(world)
@@ -132,7 +131,7 @@ fn place_viewable_camera(world: &mut World) -> OperatorResult {
     description = "Look through the selected viewable camera",
     name = "ToggleCameraPreview"
 )]
-fn toggle_preview(world: &mut World) -> OperatorResult {
+fn toggle_preview(_: In<OperatorParameters>, world: &mut World) -> OperatorResult {
     let currently_active = world.resource::<CameraPreviewState>().active;
     if currently_active.is_some() {
         restore_editor_camera(world);

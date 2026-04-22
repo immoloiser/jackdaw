@@ -9,7 +9,7 @@
 use core::ffi::CStr;
 use std::ffi::c_char;
 
-use jackdaw_api::ffi::{API_VERSION, BEVY_VERSION, ExtensionEntry, GameEntry, PROFILE};
+use jackdaw_api_internal::ffi::{API_VERSION, BEVY_VERSION, ExtensionEntry, GameEntry, PROFILE};
 
 #[derive(Debug)]
 pub enum CompatError {

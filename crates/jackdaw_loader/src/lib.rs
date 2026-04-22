@@ -5,9 +5,9 @@
 //! Add [`DylibLoaderPlugin`] to the editor `App`. During `build` it
 //! walks every configured search path, opens each dynamic library
 //! with `libloading`, looks up the `jackdaw_extension_entry_v1`
-//! symbol (see [`jackdaw_api::ffi::ENTRY_SYMBOL`]), verifies ABI
+//! symbol (see [`jackdaw_api_internal::ffi::ENTRY_SYMBOL`]), verifies ABI
 //! compatibility, and registers the extension through the normal
-//! [`jackdaw_api::register_extension`] path used for static
+//! [`jackdaw_api_internal::register_extension`] path used for static
 //! extensions.
 //!
 //! The plugin lives in [`LoadedDylibs`] as long as the `App` lives.
@@ -50,7 +50,7 @@ use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
-use jackdaw_api::ffi::{ENTRY_SYMBOL, ExtensionEntry, GAME_ENTRY_SYMBOL, GameEntry};
+use jackdaw_api_internal::ffi::{ENTRY_SYMBOL, ExtensionEntry, GAME_ENTRY_SYMBOL, GameEntry};
 
 pub use compat::CompatError;
 
@@ -131,7 +131,7 @@ impl LoadedDylibs {
 ///
 /// Configuration lives on the plugin itself because loading happens
 /// during `build()` (so the loader can use `&mut App` to reuse
-/// `jackdaw_api::register_extension`).
+/// `jackdaw_api_internal::register_extension`).
 pub struct DylibLoaderPlugin {
     /// Extra search paths added on top of the defaults.
     pub extra_paths: Vec<PathBuf>,
@@ -341,7 +341,7 @@ enum OpenedDylib {
     Extension {
         lib: libloading::Library,
         name: String,
-        ctor: unsafe extern "C" fn() -> Box<dyn jackdaw_api::JackdawExtension>,
+        ctor: unsafe extern "C" fn() -> Box<dyn jackdaw_api_internal::JackdawExtension>,
     },
     Game {
         lib: libloading::Library,
@@ -395,7 +395,7 @@ fn open_and_verify(path: &Path) -> Result<OpenedDylib, LoadError> {
     }
 
     // SAFETY: the entry symbol has the signature declared by
-    // `jackdaw_api::ffi::ExtensionEntry`. Calling it is isolated
+    // `jackdaw_api_internal::ffi::ExtensionEntry`. Calling it is isolated
     // inside `catch_unwind` below.
     type EntryFn = unsafe extern "C" fn() -> ExtensionEntry;
     let entry_sym: libloading::Symbol<EntryFn> = unsafe { lib.get(ENTRY_SYMBOL)? };
@@ -439,14 +439,28 @@ fn try_load(app: &mut App, path: &Path) -> Result<LoadedKind, LoadError> {
             // dylibs, treated as a no-op.
             call_reflect_register_symbol(app.world_mut(), &lib);
 
-            jackdaw_api::register_extension(app, &name, move || {
-                // SAFETY: the dylib stays loaded because its
-                // Library handle is kept in LoadedDylibs;
-                // `verify_compat` asserted the ABI contract at
-                // load time, and the ctor pointer itself is just a
-                // plain function pointer.
-                unsafe { ctor() }
-            });
+            // Construct once to harvest kind + run its one-time BEI
+            // input-context registration; then store the ctor in the
+            // catalog so subsequent enable/disable cycles rebuild the
+            // extension fresh each time.
+            let sample = unsafe { ctor() };
+            let kind = sample.dyn_kind();
+            sample.dyn_register_input_context(app);
+            drop(sample);
+
+            jackdaw_api_internal::lifecycle::register_dylib_extension(
+                app.world_mut(),
+                &name,
+                kind,
+                move || {
+                    // SAFETY: the dylib stays loaded because its
+                    // Library handle is kept in LoadedDylibs;
+                    // `verify_compat` asserted the ABI contract at
+                    // load time, and the ctor pointer itself is just a
+                    // plain function pointer.
+                    unsafe { ctor() }
+                },
+            );
 
             app.world_mut()
                 .resource_mut::<LoadedDylibs>()
@@ -527,7 +541,7 @@ fn try_load(app: &mut App, path: &Path) -> Result<LoadedKind, LoadError> {
 ///   activate until the editor restarts and picks the dylib up
 ///   through the normal [`DylibLoaderPlugin`] startup path.
 ///
-/// The constructor is inserted into [`jackdaw_api::ExtensionCatalog`]
+/// The constructor is inserted into [`jackdaw_api_internal::ExtensionCatalog`]
 /// so the Extensions dialog's enable/disable toggle can reuse it, and
 /// the `Library` handle is moved into [`LoadedDylibs`] so the entry
 /// point stays valid for the rest of the app's life.
@@ -543,7 +557,7 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
             // duplicate windows/operators and a phantom second
             // catalog entry.
             if world
-                .resource::<jackdaw_api::ExtensionCatalog>()
+                .resource::<jackdaw_api_internal::ExtensionCatalog>()
                 .contains(&name)
             {
                 info!(
@@ -562,15 +576,18 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
             register_derived_component_ids(world);
 
             let sample = unsafe { ctor() };
-            let kind = sample.kind();
+            let kind = sample.dyn_kind();
             drop(sample);
 
-            world
-                .resource_mut::<jackdaw_api::ExtensionCatalog>()
-                .register(&name, kind, move || unsafe { ctor() });
+            jackdaw_api_internal::lifecycle::register_dylib_extension(
+                world,
+                &name,
+                kind,
+                move || unsafe { ctor() },
+            );
 
             let extension = unsafe { ctor() };
-            jackdaw_api::load_static_extension(world, extension);
+            jackdaw_api_internal::lifecycle::load_static_extension(world, extension);
 
             world.resource_mut::<LoadedDylibs>().libs.push(lib);
 
@@ -637,7 +654,7 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
 enum OpenedKind {
     Extension {
         name: String,
-        ctor: unsafe extern "C" fn() -> Box<dyn jackdaw_api::JackdawExtension>,
+        ctor: unsafe extern "C" fn() -> Box<dyn jackdaw_api_internal::JackdawExtension>,
     },
     Game {
         name: String,
@@ -678,13 +695,13 @@ fn open_and_verify_keep_lib(
 /// (backward-compatible with extensions that pre-date this FFI point).
 ///
 /// The symbol is `jackdaw_register_reflect_types_v1` (see
-/// [`jackdaw_api::ffi::REFLECT_REGISTER_SYMBOL`]). Each cdylib's
+/// [`jackdaw_api_internal::ffi::REFLECT_REGISTER_SYMBOL`]). Each cdylib's
 /// `build.rs` generates its body with explicit
 /// `registry.register::<T>()` calls for every `#[derive(Reflect)]`
 /// type in the crate, and the `export_game!` / `export_extension!`
 /// macros emit the `#[unsafe(no_mangle)] extern "Rust"` wrapper.
 fn call_reflect_register_symbol(world: &mut World, lib: &libloading::Library) {
-    use jackdaw_api::ffi::{REFLECT_REGISTER_SYMBOL, ReflectRegisterFn};
+    use jackdaw_api_internal::ffi::{REFLECT_REGISTER_SYMBOL, ReflectRegisterFn};
 
     let Some(registry_res) = world.get_resource::<bevy::ecs::reflect::AppTypeRegistry>() else {
         debug!("reflect-register: AppTypeRegistry missing, skipping");

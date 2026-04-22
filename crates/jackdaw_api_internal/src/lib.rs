@@ -1,6 +1,6 @@
 //! Public API for Jackdaw editor extensions.
 //!
-//! Extensions are entities. An extension entity holds an [`Extension`]
+//! Extensions are entities. An extension entity holds an [`Extension`](lifecycle::Extension)
 //! component, and every registration (operators, windows, BEI contexts,
 //! panel extensions) spawns child entities under it. Unloading an
 //! extension is `world.entity_mut(ext).despawn()`; Bevy cascades through
@@ -13,44 +13,32 @@
 //! use bevy_enhanced_input::prelude::*;
 //! use jackdaw_api::prelude::*;
 //!
-//! // An operator is also a BEI action, so one type covers both.
-//! #[derive(Default, InputAction)]
-//! #[action_output(bool)]
-//! pub struct PlaceCube;
-//!
-//! impl Operator for PlaceCube {
-//!     const ID: &'static str = "sample.place_cube";
-//!     const LABEL: &'static str = "Place Cube";
-//!     fn register_execute(commands: &mut Commands) -> SystemId<(), OperatorResult> {
-//!         commands.register_system(place_cube)
-//!     }
-//! }
-//!
-//! // Operators are plain Bevy systems. Mutate the world however you
-//! // like; the dispatcher snapshots the scene before invoke and diffs
-//! // after, so a single Ctrl+Z reverses the entire call.
-//! fn place_cube(mut commands: Commands) -> OperatorResult {
+//! #[operator(id = "sample.place_cube")]
+//! fn place_cube(_: In<OperatorParameters>, mut commands: Commands) -> OperatorResult {
 //!     commands.spawn((Name::new("Cube"), Transform::default()));
 //!     OperatorResult::Finished
 //! }
 //!
 //! #[derive(Component, Default)]
-//! pub struct SamplePluginContext;
+//! struct SamplePluginContext;
 //!
-//! pub struct SamplePlugin;
+//! #[derive(Default)]
+//! struct MyCoolExtension;
 //!
-//! impl JackdawExtension for SamplePlugin {
-//!     fn name(&self) -> &str { "Sample Plugin" }
+//! impl JackdawExtension for MyCoolExtension {
+//!     fn name() -> String { "The coolest extension".into() }
 //!     fn register(&self, ctx: &mut ExtensionContext) {
-//!         ctx.register_operator::<PlaceCube>();
-//!         ctx.add_input_context::<SamplePluginContext>();
+//!         ctx.register_operator::<PlaceCubeOp>();
 //!         ctx.spawn((
 //!             SamplePluginContext,
 //!             actions!(SamplePluginContext[
-//!                 Action::<PlaceCube>::new(),
-//!                 bindings![KeyCode::C],
+//!                 Action::<PlaceCubeOp>::new(),
+//!                 bindings![KeyCode::KeyC],
 //!             ]),
 //!         ));
+//!     }
+//!     fn register_input_context(app: &mut App) {
+//!         app.add_input_context::<SamplePluginContext>();
 //!     }
 //! }
 //! ```
@@ -58,45 +46,59 @@
 mod export;
 pub mod ffi;
 pub mod lifecycle;
-mod operator;
+pub mod operator;
 pub mod pie;
 mod registries;
+pub mod runtime;
 pub mod snapshot;
 
 use std::sync::Arc;
 
-use bevy::ecs::world::EntityWorldMut;
+use bevy::ecs::{system::IntoObserverSystem, world::EntityWorldMut};
 use bevy::prelude::*;
 use jackdaw_panels::{
     DockWindowDescriptor, WindowRegistry, WorkspaceDescriptor, WorkspaceRegistry,
 };
 
-pub mod runtime;
+use operator::{CallOperatorSettings, Operator, OperatorWorldExt};
+use registries::PanelExtensionRegistry;
+use snapshot::{ActiveSnapshotter, SceneSnapshot};
 
+pub use jackdaw_api_macros as macros;
 pub use jackdaw_api_macros::operator;
-pub use lifecycle::{
-    ActiveModalOperator, CallOperatorError, CallOperatorSettings, Extension, ExtensionCatalog,
-    ExtensionCtor, ExtensionKind, OperatorEntity, OperatorIndex, OperatorSession, OperatorWorldExt,
-    RegisteredMenuEntry, RegisteredPanelExtension, RegisteredWindow, RegisteredWorkspace,
-    disable_extension, enable_extension, register_extension, tick_modal_operator, unload_extension,
+pub use jackdaw_jsn as jsn;
+
+use crate::lifecycle::{ExtensionResourceOf, ResourceId};
+use crate::{
+    lifecycle::{
+        ExtensionKind, OperatorEntity, RegisteredMenuEntry, RegisteredPanelExtension,
+        RegisteredWindow, RegisteredWorkspace,
+    },
+    operator::ExecutionContext,
 };
-pub use operator::{Operator, OperatorResult};
+
+pub use lifecycle::{ActiveModalOperator, Extension, ExtensionCatalog};
+pub use operator::{CallOperatorError, OperatorResult, OperatorWorldExt as _};
 pub use pie::PlayState;
-pub use registries::PanelExtensionRegistry;
-pub use snapshot::{ActiveSnapshotter, SceneSnapshot, SceneSnapshotter};
+pub use snapshot::SceneSnapshotter;
 
 /// Re-exports plugin authors will want in one import.
 pub mod prelude {
-    pub use crate::lifecycle::{
-        CallOperatorError, CallOperatorSettings, Extension, ExtensionCatalog, ExtensionKind,
-        OperatorEntity, OperatorIndex, OperatorWorldExt,
-    };
-    pub use crate::operator::{Operator, OperatorResult};
-    pub use crate::pie::PlayState;
-    pub use crate::runtime::{GameApp, GamePlugin, GameRegistered, GameRegistry, GameSystems};
     pub use crate::{
         ExtensionContext, ExtensionPoint, JackdawExtension, MenuEntryDescriptor, PanelContext,
-        SectionBuildFn, WindowDescriptor, operator,
+        SectionBuildFn, WindowDescriptor,
+        lifecycle::{
+            ActiveModalQuery, Extension, ExtensionAppExt as _, ExtensionCatalog, ExtensionKind,
+            RegisteredMenuEntry, RegisteredWindow,
+        },
+        macros::operator,
+        operator::{
+            CallOperatorSettings, ExecutionContext, Operator, OperatorCommandsExt as _,
+            OperatorParameters, OperatorResult, OperatorSystemId, OperatorWorldExt as _,
+        },
+        pie::PlayState,
+        runtime::{GameApp, GamePlugin, GameRegistered, GameRegistry, GameSystems},
+        snapshot::{ActiveSnapshotter, SceneSnapshot, SceneSnapshotter},
     };
     // BEI types extension authors need for `actions!` / `bindings!` / observers.
     pub use bevy_enhanced_input::prelude::*;
@@ -106,15 +108,21 @@ pub mod prelude {
 
 /// Trait implemented by every extension. Declares the extension's name
 /// and registration logic; the framework handles everything else.
-pub trait JackdawExtension: Send + Sync + 'static {
-    fn name(&self) -> &str;
+pub trait JackdawExtension: Send + Sync + 'static + DynJackdawExtension {
+    /// A human-readable name for this extension. This will be displayed in UIs.
+    fn name() -> String
+    where
+        Self: Sized;
 
     /// Classify this extension. Defaults to [`ExtensionKind::Custom`].
     ///
     /// The Extensions dialog reads this to split the list into Built-in
     /// and Custom sections. Reserved as a future hook for marketplace
     /// categories.
-    fn kind(&self) -> ExtensionKind {
+    fn kind() -> ExtensionKind
+    where
+        Self: Sized,
+    {
         ExtensionKind::Custom
     }
 
@@ -127,7 +135,13 @@ pub trait JackdawExtension: Send + Sync + 'static {
     ///
     /// Defaults to no-op; override only if the extension adds BEI
     /// contexts.
-    fn register_input_contexts(&self, _app: &mut App) {}
+    // FIXME: this leaks memory when the extension is disabled
+    #[expect(unused_variables, reason = "The default implementation does nothing")]
+    fn register_input_context(app: &mut App)
+    where
+        Self: Sized,
+    {
+    }
 
     /// Main registration logic. Called each time the extension is
     /// enabled. Spawn operators, windows, BEI action entities, and any
@@ -139,7 +153,33 @@ pub trait JackdawExtension: Send + Sync + 'static {
     /// Child-entity cleanup handles registered windows, operators, BEI
     /// contexts, and observers automatically. Override only for non-ECS
     /// state (file handles, network sessions, and the like).
-    fn unregister(&self, _world: &mut World, _extension_entity: Entity) {}
+    #[expect(unused_variables, reason = "The default implementation does nothing")]
+    fn unregister(&self, world: &mut World, extension_entity: Entity) {}
+}
+
+/// Allows access to the extension's static methods via a dynamic dispatch.
+/// This is needed for when you're holding a `Box<dyn JackdawExtension>` and need to call methods that wouldn't require `self`.
+pub trait DynJackdawExtension {
+    /// Returns [`JackdawExtension::name`] via dynamic dispatch.
+    fn dyn_name(&self) -> String;
+    /// Returns [`JackdawExtension::kind`] via dynamic dispatch.
+    fn dyn_kind(&self) -> ExtensionKind;
+    /// Registers input contexts for this extension.
+    fn dyn_register_input_context(&self, app: &mut App);
+}
+
+impl<T: JackdawExtension> DynJackdawExtension for T {
+    fn dyn_name(&self) -> String {
+        T::name()
+    }
+
+    fn dyn_kind(&self) -> ExtensionKind {
+        T::kind()
+    }
+
+    fn dyn_register_input_context(&self, app: &mut App) {
+        T::register_input_context(app)
+    }
 }
 
 /// Passed to [`JackdawExtension::register`]. Holds the extension entity
@@ -149,7 +189,7 @@ pub trait JackdawExtension: Send + Sync + 'static {
 /// loaded from world-only contexts such as the Extensions dialog's
 /// enable/disable observer. One-time setup that genuinely requires App
 /// access (BEI input-context registration) runs through
-/// [`JackdawExtension::register_input_contexts`] at catalog-registration
+/// [`JackdawExtension::register_input_context`] at catalog-registration
 /// time.
 pub struct ExtensionContext<'a> {
     world: &'a mut World,
@@ -164,23 +204,50 @@ impl<'a> ExtensionContext<'a> {
         }
     }
 
-    /// Direct access to the underlying `World`. Extensions that need to
-    /// insert resources or spawn additional entities use this.
-    pub fn world(&mut self) -> &mut World {
-        self.world
+    /// Calls [`World::init_resource`] to initialize a resource, ensuring that it is removed on unload.
+    pub fn init_resource<T: Resource + Default>(&mut self) -> &mut Self {
+        let id = self.world.init_resource::<T>();
+        self.world.spawn(ExtensionResourceOf {
+            entity: self.id(),
+            resource_id: ResourceId(id),
+        });
+        self
     }
 
-    /// The root [`Extension`] entity. Useful when an extension wants to
-    /// spawn additional child entities that should be torn down on
-    /// unload.
-    pub fn entity(&self) -> Entity {
+    /// Calls [`World::insert_resource`] to initialize a resource, ensuring that it is removed on unload.
+    pub fn insert_resource<T: Resource>(&mut self, resource: T) -> &mut Self {
+        self.world.insert_resource(resource);
+        let id = self
+            .world
+            .resource_id::<T>()
+            .expect("resource_id should be Some since resource was just inserted");
+        self.world.spawn(ExtensionResourceOf {
+            entity: self.id(),
+            resource_id: ResourceId(id),
+        });
+        self
+    }
+
+    /// Calls [`World::add_observer`] to initialize an observer, ensuring that it is removed on unload.
+    pub fn add_observer<E: Event, B: Bundle, M>(
+        &mut self,
+        system: impl IntoObserverSystem<E, B, M>,
+    ) -> &mut Self {
+        self.entity_mut().with_child(Observer::new(system));
+        self
+    }
+
+    /// The root [`Extension`](lifecycle::Extension) entity.
+    ///
+    /// See also: [`ExtensionContext::entity`] and [`ExtensionContext::entity_mut`].
+    pub fn id(&self) -> Entity {
         self.extension_entity
     }
 
     /// Register a dock window. Spawns a [`RegisteredWindow`] marker
     /// entity as a child of the extension entity; a cleanup observer
     /// calls `WindowRegistry::unregister` when the marker despawns.
-    pub fn register_window(&mut self, descriptor: WindowDescriptor) {
+    pub fn register_window(&mut self, descriptor: WindowDescriptor) -> &mut Self {
         let ext = self.extension_entity;
         let dock_descriptor = DockWindowDescriptor {
             id: descriptor.id.clone(),
@@ -195,16 +262,18 @@ impl<'a> ExtensionContext<'a> {
             .register(dock_descriptor);
         self.world
             .spawn((RegisteredWindow { id: descriptor.id }, ChildOf(ext)));
+        self
     }
 
     /// Register a workspace.
-    pub fn register_workspace(&mut self, descriptor: WorkspaceDescriptor) {
+    pub fn register_workspace(&mut self, descriptor: WorkspaceDescriptor) -> &mut Self {
         let ext = self.extension_entity;
         let id = descriptor.id.clone();
         self.world
             .resource_mut::<WorkspaceRegistry>()
             .register(descriptor);
         self.world.spawn((RegisteredWorkspace { id }, ChildOf(ext)));
+        self
     }
 
     /// Spawn an entity as a child of the extension entity. Typically
@@ -221,22 +290,34 @@ impl<'a> ExtensionContext<'a> {
         ec
     }
 
-    /// Register an operator. Spawns an [`OperatorEntity`] as a child
-    /// of the extension entity and, unless [`Operator::MANUAL`] is
-    /// `true`, a `Fire<O>` observer that dispatches the operator
-    /// through [`crate::OperatorWorldExt::call_operator`]. BEI binding
+    /// Get the extension's root entity. Useful for inserting components that you want to
+    /// be torn down on unload.
+    pub fn entity<'w>(&'w self) -> EntityRef<'w> {
+        self.world.entity(self.extension_entity)
+    }
+
+    /// Get the extension's root entity mutably. Useful for inserting components that you want to
+    /// be torn down on unload.
+    pub fn entity_mut<'w>(&'w mut self) -> EntityWorldMut<'w> {
+        self.world.entity_mut(self.extension_entity)
+    }
+
+    /// Register an operator. Spawns an `OperatorEntity` as a child
+    /// of the extension entity and a `Fire<O>` observer that dispatches the
+    /// operator through [`crate::OperatorWorldExt::operator`]. BEI binding
     /// modifiers on the actions shape timing (press / release / hold).
-    pub fn register_operator<O: Operator>(&mut self) {
+    pub fn register_operator<O: Operator>(&mut self) -> &mut Self {
         let ext = self.extension_entity;
 
-        let (execute, invoke, availability_check) = {
+        let (execute, invoke, availability_check, cancel) = {
             let mut queue = bevy::ecs::world::CommandQueue::default();
             let mut commands = Commands::new(&mut queue, self.world);
             let execute = O::register_execute(&mut commands);
             let invoke = O::register_invoke(&mut commands);
             let availability_check = O::register_availability_check(&mut commands);
+            let cancel = O::register_cancel(&mut commands);
             queue.apply(self.world);
-            (execute, invoke, availability_check)
+            (execute, invoke, availability_check, cancel)
         };
 
         let op_entity = self
@@ -249,30 +330,37 @@ impl<'a> ExtensionContext<'a> {
                     execute,
                     invoke,
                     availability_check,
+                    cancel,
                     modal: O::MODAL,
+                    allows_undo: O::ALLOWS_UNDO,
                 },
                 ChildOf(ext),
             ))
             .id();
 
-        if !O::MANUAL {
-            let observer = Observer::new(
-                move |_: bevy::prelude::On<bevy_enhanced_input::prelude::Fire<O>>,
-                      mut commands: Commands| {
-                    commands.queue(move |world: &mut World| {
-                        use crate::OperatorWorldExt;
-                        let _ = world.call_operator(O::ID);
-                    });
-                },
-            );
-            self.world.spawn((observer, ChildOf(op_entity)));
-        }
+        let observer = Observer::new(
+            move |_: bevy::prelude::On<bevy_enhanced_input::prelude::Fire<O>>,
+                  mut commands: Commands| {
+                commands.queue(move |world: &mut World| {
+                    world
+                        .operator(O::ID)
+                        .settings(CallOperatorSettings {
+                            execution_context: ExecutionContext::Invoke,
+                            creates_history_entry: true,
+                        })
+                        .call()
+                });
+            },
+        );
+        self.world.spawn((observer, ChildOf(op_entity)));
+
+        self
     }
 
     /// Inject a section into an existing panel (e.g. add a sub-section to
     /// the Inspector window). Section runs with `In<PanelContext>` each time
     /// the panel re-renders.
-    pub fn extend_window<W: ExtensionPoint>(&mut self, section: SectionBuildFn) {
+    pub fn extend_window<W: ExtensionPoint>(&mut self, section: SectionBuildFn) -> &mut Self {
         let ext = self.extension_entity;
         let panel_id = W::ID.to_string();
         let mut registry = self.world.resource_mut::<PanelExtensionRegistry>();
@@ -285,23 +373,12 @@ impl<'a> ExtensionContext<'a> {
             },
             ChildOf(ext),
         ));
+        self
     }
 
     /// Contribute an entry to one of the editor's top-level menus
     /// (`"Add"`, `"Tools"`, etc.). Clicking the entry dispatches the
     /// referenced operator.
-    ///
-    /// The menu bar rebuilds automatically when entries are added or
-    /// removed. When the extension unloads, its menu entries despawn
-    /// with it and the menu rebuilds without them.
-    ///
-    /// ```ignore
-    /// ctx.register_menu_entry(MenuEntryDescriptor {
-    ///     menu: "Add".into(),
-    ///     label: "My Camera".into(),
-    ///     operator_id: PlaceMyCamera::ID,
-    /// });
-    /// ```
     pub fn register_menu_entry(&mut self, descriptor: MenuEntryDescriptor) {
         let ext = self.extension_entity;
         self.world.spawn((
@@ -378,34 +455,20 @@ pub struct PanelContext {
 
 pub type SectionBuildFn = Arc<dyn Fn(&mut World, PanelContext) + Send + Sync>;
 
-/// Load an extension statically. Spawns an `Extension` entity, runs
-/// `extension.register()` against it, returns the entity.
+/// Plugin that wires up the extension framework into the editor.
 ///
-/// Takes `&mut World` (not `&mut App`) so this can be called from
-/// world-scoped contexts like observer callbacks. BEI input context
-/// registration belongs in
-/// [`JackdawExtension::register_input_contexts`], which is called at
-/// catalog registration time with App access.
-pub fn load_static_extension(world: &mut World, extension: Box<dyn JackdawExtension>) -> Entity {
-    let name = extension.name().to_string();
-    info!("Loading extension: {}", name);
+/// Adds BEI, sets up the required resources (`OperatorIndex`,
+/// `PanelExtensionRegistry`, `ExtensionCatalog`, `ActiveModalOperator`),
+/// and registers the cleanup observers that keep non-ECS state in sync
+/// when extension entities are despawned.
+///
+/// Also runs `tick_modal_operator` each frame in Update so modal
+/// operators (Blender-style grab/rotate/scale) re-run their invoke
+/// system until they return `Finished` or `Cancelled`.
+pub struct ExtensionLoaderPlugin;
 
-    let extension_entity = world.spawn(Extension { name }).id();
-
-    let mut ctx = ExtensionContext::new(world, extension_entity);
-    extension.register(&mut ctx);
-
-    // Store the extension trait object on the entity so `unload_extension`
-    // can call `unregister` before despawn.
-    world
-        .entity_mut(extension_entity)
-        .insert(StoredExtension(extension));
-
-    extension_entity
+impl Plugin for ExtensionLoaderPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((lifecycle::plugin, operator::plugin, registries::plugin));
+    }
 }
-
-/// Internal component holding the extension trait object for the duration
-/// of its lifetime. Used by `unload_extension` to invoke the optional
-/// `unregister` hook before despawning.
-#[derive(Component)]
-pub(crate) struct StoredExtension(pub(crate) Box<dyn JackdawExtension>);

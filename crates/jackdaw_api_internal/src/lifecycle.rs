@@ -9,16 +9,26 @@
 //! unregistering stored `SystemId`s, removing entries from the dock
 //! `WindowRegistry`, and so on.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bevy::ecs::system::SystemId;
+use crate::operator::cancel_active_modal;
+use crate::prelude::*;
+use bevy::ecs::component::ComponentId;
+use bevy::ecs::system::{SystemId, SystemParam};
 use bevy::prelude::*;
-use jackdaw_commands::{CommandHistory, EditorCommand};
 
-use crate::operator::OperatorResult;
-use crate::snapshot::{ActiveSnapshotter, SceneSnapshot};
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<ExtensionCatalog>()
+        .init_resource::<OperatorIndex>()
+        .add_observer(index_operator_on_add)
+        .add_observer(deindex_and_cleanup_operator_on_remove)
+        .add_observer(cleanup_window_on_remove)
+        .add_observer(cleanup_workspace_on_remove)
+        .add_observer(cleanup_panel_extension_on_remove)
+        .add_observer(cleanup_resource_on_remove);
+    app.world_mut().register_component::<ActiveModalOperator>();
+}
 
 /// Root component for an extension.
 ///
@@ -32,25 +42,54 @@ pub struct Extension {
     pub name: String,
 }
 
+/// [`Resource`]s attached to a specific [`Extension`].
+/// When the extension is unloaded, these resources are removed via [`World::remove_resource_by_id`].
+#[derive(Component, Default, Debug, PartialEq, Eq, Deref)]
+#[relationship_target(relationship = ExtensionResourceOf, linked_spawn)]
+pub(crate) struct ExtensionResources(Vec<Entity>);
+
+/// Link from an entity representing a [`Resource`] to its owning [`Extension`], ensuring
+/// that the resource is removed when the extension is unloaded.
+#[derive(Component, Debug, PartialEq, Eq)]
+#[relationship(relationship_target = ExtensionResources)]
+pub(crate) struct ExtensionResourceOf {
+    #[relationship]
+    pub(crate) entity: Entity,
+    pub(crate) resource_id: ResourceId,
+}
+
+/// The [`ComponentId`] of a [`Resource`]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ResourceId(pub(crate) ComponentId);
+
+impl Default for ResourceId {
+    fn default() -> Self {
+        Self(ComponentId::new(0))
+    }
+}
+
 /// Child of an [`Extension`]; represents a single operator.
 ///
 /// Holds the `SystemId`s that the dispatcher runs. An observer on
 /// `On<Remove, OperatorEntity>` unregisters those systems when this entity
-/// despawns, and keeps the [`OperatorIndex`] in sync.
-#[derive(Component, Clone)]
+/// despawns, and keeps the `OperatorIndex` in sync.
+#[derive(Component, Debug, Clone)]
 pub struct OperatorEntity {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub description: &'static str,
-    pub execute: SystemId<(), OperatorResult>,
-    pub invoke: SystemId<(), OperatorResult>,
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    #[expect(dead_code, reason = "This should go into the UI eventually")]
+    pub(crate) description: &'static str,
+    pub(crate) execute: OperatorSystemId,
+    pub(crate) invoke: OperatorSystemId,
     /// Optional system that returns whether the operator can run in
     /// the current editor state. Equivalent to Blender's `poll`.
-    pub availability_check: Option<SystemId<(), bool>>,
+    pub(crate) availability_check: Option<SystemId<(), bool>>,
     /// Mirrors [`crate::Operator::MODAL`]. Set at registration so the
     /// dispatcher can enter modal mode without re-resolving the generic
     /// operator type.
-    pub modal: bool,
+    pub(crate) cancel: Option<SystemId<()>>,
+    pub(crate) modal: bool,
+    pub(crate) allows_undo: bool,
 }
 
 /// Tracks the currently-active modal operator. Exactly zero or one is
@@ -60,36 +99,46 @@ pub struct OperatorEntity {
 /// The `before_snapshot` is captured when the modal begins; on commit
 /// the dispatcher diffs it against a fresh snapshot and pushes a single
 /// undo entry, so the entire modal session rolls up into one Ctrl+Z.
-#[derive(Resource, Default)]
+#[derive(Component)]
 pub struct ActiveModalOperator {
-    pub(crate) id: Option<&'static str>,
-    pub(crate) operator_entity: Option<Entity>,
-    pub(crate) invoke_system: Option<SystemId<(), OperatorResult>>,
-    pub(crate) label: Option<String>,
     pub(crate) before_snapshot: Option<Box<dyn SceneSnapshot>>,
 }
 
-impl ActiveModalOperator {
-    pub fn is_active(&self) -> bool {
-        self.id.is_some()
-    }
-
-    pub fn id(&self) -> Option<&'static str> {
-        self.id
-    }
+/// Convenience [`SystemParam`] for querying the active modal operator.
+#[derive(SystemParam)]
+pub struct ActiveModalQuery<'w, 's> {
+    maybe_modal: Option<Single<'w, 's, (&'static OperatorEntity, &'static ActiveModalOperator)>>,
+    commands: Commands<'w, 's>,
 }
 
-/// Counts how deeply operators are nested. The outermost operator in
-/// a call chain takes the snapshot; inner operators' mutations roll
-/// into that outer diff.
-#[derive(Resource, Default)]
-pub struct OperatorSession {
-    depth: u32,
-}
+impl<'w, 's> ActiveModalQuery<'w, 's> {
+    pub fn is_modal_running(&self) -> bool {
+        self.maybe_modal.is_some()
+    }
 
-impl OperatorSession {
-    pub fn is_outermost(&self) -> bool {
-        self.depth == 0
+    pub fn is_operator(&self, operator_id: impl AsRef<str>) -> bool {
+        self.get_operator()
+            .is_some_and(|op| op.id == operator_id.as_ref())
+    }
+    pub fn get_operator(&self) -> Option<&OperatorEntity> {
+        self.get_operator_and_modal().map(|m| m.0)
+    }
+    pub fn get_modal(&self) -> Option<&ActiveModalOperator> {
+        self.get_operator_and_modal().map(|m| m.1)
+    }
+    pub fn get_operator_and_modal(&self) -> Option<(&OperatorEntity, &ActiveModalOperator)> {
+        self.maybe_modal.as_ref().map(|m| (m.0, m.1))
+    }
+
+    pub fn cancel(&mut self) {
+        self.commands.queue(|world: &mut World| {
+            let res: Result = world
+                .run_system_cached(cancel_active_modal)
+                .map_err(BevyError::from);
+            if let Err(err) = res {
+                error!("Failed to cancel active modal: {err}")
+            }
+        });
     }
 }
 
@@ -101,21 +150,21 @@ impl OperatorSession {
 /// add-window popup when the extension unloads.
 #[derive(Component, Clone, Debug)]
 pub struct RegisteredWindow {
-    pub id: String,
+    pub(crate) id: String,
 }
 
 /// Marks an entity as tracking a workspace registration.
 #[derive(Component, Clone, Debug)]
-pub struct RegisteredWorkspace {
-    pub id: String,
+pub(crate) struct RegisteredWorkspace {
+    pub(crate) id: String,
 }
 
 /// Marks an entity as tracking a panel-extension registration (a section
 /// injected into an existing panel via `ExtensionContext::extend_window`).
 #[derive(Component, Clone, Debug)]
-pub struct RegisteredPanelExtension {
-    pub panel_id: String,
-    pub section_index: usize,
+pub(crate) struct RegisteredPanelExtension {
+    pub(crate) panel_id: String,
+    pub(crate) section_index: usize,
 }
 
 /// An extension-contributed entry in the editor menu bar.
@@ -138,23 +187,13 @@ pub struct RegisteredMenuEntry {
 /// Reactive index from operator id → operator entity. Maintained by the
 /// `index_operator_on_add` / `deindex_operator_on_remove` observers.
 /// Lets the dispatcher resolve an id to a `SystemId` in O(1).
-#[derive(Resource, Default)]
-pub struct OperatorIndex {
+#[derive(Resource, Default, Deref, DerefMut)]
+pub(crate) struct OperatorIndex {
     pub(crate) by_id: HashMap<&'static str, Entity>,
 }
 
-impl OperatorIndex {
-    pub fn get(&self, id: &str) -> Option<Entity> {
-        self.by_id.get(id).copied()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&'static str, Entity)> + '_ {
-        self.by_id.iter().map(|(k, v)| (*k, *v))
-    }
-}
-
 /// Constructor function for an extension. Stored in [`ExtensionCatalog`].
-pub type ExtensionCtor = Arc<dyn Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync>;
+pub(crate) type ExtensionCtor = Arc<dyn Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync>;
 
 /// Registry of all extensions compiled into this build of Jackdaw.
 ///
@@ -188,9 +227,9 @@ pub enum ExtensionKind {
 
 impl ExtensionCatalog {
     /// Register a constructor with its declared kind. Most callers
-    /// should use [`register_extension`] instead, which handles BEI
+    /// should use [`App::register_extension`] instead, which handles BEI
     /// context registration.
-    pub fn register<F>(&mut self, name: impl Into<String>, kind: ExtensionKind, ctor: F)
+    pub(crate) fn register<F>(&mut self, name: impl Into<String>, kind: ExtensionKind, ctor: F)
     where
         F: Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
     {
@@ -236,288 +275,68 @@ impl ExtensionCatalog {
     }
 }
 
-/// Register an extension into the catalog and perform its one-time BEI
-/// input-context registration.
-///
-/// Call this once per extension during app setup. Registering the constructor
-/// lets the Plugins dialog list the extension; running
-/// `register_input_contexts` ensures its BEI context types are known to the
-/// framework. Enabling and disabling the extension later only re-runs
-/// `register()`, never `register_input_contexts()` (BEI panics on duplicate
-/// registrations).
-pub fn register_extension<F>(app: &mut App, name: &str, ctor: F)
-where
-    F: Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
-{
-    // Construct a throwaway instance to (a) register context types and
-    // (b) read the extension's declared `kind`. Doing both against the
-    // same instance avoids a second construction just to classify.
-    let sample = ctor();
-    sample.register_input_contexts(app);
-    let kind = sample.kind();
-    drop(sample);
+pub trait ExtensionAppExt {
+    /// Register an extension into the catalog and perform its one-time BEI
+    /// input-context registration.
+    ///
+    /// Call this once per extension during app setup. Registering the constructor
+    /// lets the Plugins dialog list the extension; running
+    /// `register_input_context` ensures its BEI context types are known to the
+    /// framework. Enabling and disabling the extension later only re-runs
+    /// `register()`, never `register_input_context()` (BEI panics on duplicate
+    /// registrations).
+    ///
+    /// See also [`Self::register_extension_with`].
+    fn register_extension<T: crate::JackdawExtension + Default>(&mut self) -> &mut Self {
+        self.register_extension_with::<T>(|| Box::new(T::default()))
+    }
 
-    app.world_mut()
-        .resource_mut::<ExtensionCatalog>()
-        .register(name, kind, ctor);
-}
-
-/// Extension trait on [`World`] for calling operators by id.
-///
-/// Usage:
-///
-/// ```ignore
-/// use jackdaw_api::prelude::*;
-///
-/// fn my_button(mut commands: Commands) {
-///     commands.queue(|world: &mut World| {
-///         let _ = world.call_operator("avian.add_rigid_body");
-///     });
-/// }
-/// ```
-pub trait OperatorWorldExt {
-    /// Call an operator by id. The availability check runs before the
-    /// invoke system, so validation logic lives only on the operator
-    /// itself. Equivalent to
-    /// `call_operator_with(id, &CallOperatorSettings::default())`.
-    fn call_operator(
+    /// Like [`Self::register_extension`], but with a custom constructor.
+    fn register_extension_with<T: crate::JackdawExtension>(
         &mut self,
-        id: impl Into<Cow<'static, str>>,
-    ) -> Result<OperatorResult, CallOperatorError>;
+        ctor: impl Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
+    ) -> &mut Self;
 
-    /// Call an operator with explicit settings.
-    fn call_operator_with(
+    /// Register an extension by constructor alone, without the
+    /// compile-time type parameter required by [`Self::register_extension`].
+    ///
+    /// Used by the runtime dylib loader: it gets a `Box<dyn JackdawExtension>`
+    /// from an FFI ctor and can't name the concrete type. Constructs one
+    /// instance up front to harvest `dyn_name()`, `dyn_kind()`, and
+    /// `dyn_register_input_context()`; the ctor itself is stored for
+    /// later invocations from the Extensions dialog.
+    fn register_extension_dynamic(
         &mut self,
-        id: impl Into<Cow<'static, str>>,
-        settings: &CallOperatorSettings,
-    ) -> Result<OperatorResult, CallOperatorError>;
+        ctor: impl Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
+    ) -> &mut Self;
+}
 
-    /// Whether the operator would run in the current editor state.
-    /// `Ok(true)` if it's ready, `Ok(false)` if not, `Err` for unknown
-    /// ids.
-    fn is_operator_available(
+impl ExtensionAppExt for App {
+    fn register_extension_with<T: crate::JackdawExtension>(
         &mut self,
-        id: impl Into<Cow<'static, str>>,
-    ) -> Result<bool, CallOperatorError>;
-}
-
-/// Knobs passed to [`OperatorWorldExt::call_operator_with`].
-#[derive(Clone, Debug)]
-pub struct CallOperatorSettings {
-    /// Whether a successful call should push an undo entry. Default
-    /// `true`. Set `false` for view-local effects (camera moves,
-    /// preview toggles) that should not be undoable.
-    pub creates_history_entry: bool,
-}
-
-impl Default for CallOperatorSettings {
-    fn default() -> Self {
-        Self {
-            creates_history_entry: true,
-        }
+        ctor: impl Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
+    ) -> &mut Self {
+        self.world_mut()
+            .resource_mut::<ExtensionCatalog>()
+            .register(T::name(), T::kind(), ctor);
+        T::register_input_context(self);
+        self
     }
-}
 
-#[derive(Clone, Debug)]
-pub enum CallOperatorError {
-    UnknownId(Cow<'static, str>),
-    ModalAlreadyActive(&'static str),
-    AvailabilityCheckFailed,
-    ExecuteFailed,
-}
-
-impl std::fmt::Display for CallOperatorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnknownId(id) => write!(f, "unknown operator: {id}"),
-            Self::ModalAlreadyActive(id) => {
-                write!(f, "modal operator '{id}' is currently active")
-            }
-            Self::AvailabilityCheckFailed => f.write_str("operator's availability check failed"),
-            Self::ExecuteFailed => f.write_str("operator's execute system failed"),
-        }
-    }
-}
-
-impl std::error::Error for CallOperatorError {}
-
-impl OperatorWorldExt for World {
-    fn call_operator(
+    fn register_extension_dynamic(
         &mut self,
-        id: impl Into<Cow<'static, str>>,
-    ) -> Result<OperatorResult, CallOperatorError> {
-        self.call_operator_with(id, &CallOperatorSettings::default())
-    }
+        ctor: impl Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
+    ) -> &mut Self {
+        let sample = ctor();
+        let name = sample.dyn_name();
+        let kind = sample.dyn_kind();
+        sample.dyn_register_input_context(self);
+        drop(sample);
 
-    fn call_operator_with(
-        &mut self,
-        id: impl Into<Cow<'static, str>>,
-        settings: &CallOperatorSettings,
-    ) -> Result<OperatorResult, CallOperatorError> {
-        let id = id.into();
-        dispatch_operator(self, id, settings.creates_history_entry)
-    }
-
-    fn is_operator_available(
-        &mut self,
-        id: impl Into<Cow<'static, str>>,
-    ) -> Result<bool, CallOperatorError> {
-        let id = id.into();
-        let Some(op_entity) = self
-            .resource::<OperatorIndex>()
-            .by_id
-            .get(id.as_ref())
-            .copied()
-        else {
-            return Err(CallOperatorError::UnknownId(id));
-        };
-        let Some(op) = self.get::<OperatorEntity>(op_entity).cloned() else {
-            return Err(CallOperatorError::UnknownId(id));
-        };
-        let Some(check) = op.availability_check else {
-            return Ok(true);
-        };
-        self.run_system(check)
-            .map_err(|_| CallOperatorError::AvailabilityCheckFailed)
-    }
-}
-
-fn dispatch_operator(
-    world: &mut World,
-    id: Cow<'static, str>,
-    creates_history_entry: bool,
-) -> Result<OperatorResult, CallOperatorError> {
-    if let Some(active_id) = world.resource::<ActiveModalOperator>().id {
-        return Err(CallOperatorError::ModalAlreadyActive(active_id));
-    }
-
-    let Some(op_entity) = world
-        .resource::<OperatorIndex>()
-        .by_id
-        .get(id.as_ref())
-        .copied()
-    else {
-        return Err(CallOperatorError::UnknownId(id));
-    };
-    let Some(op) = world.get::<OperatorEntity>(op_entity).cloned() else {
-        return Err(CallOperatorError::UnknownId(id));
-    };
-
-    if let Some(check) = op.availability_check {
-        let available = world
-            .run_system(check)
-            .map_err(|_| CallOperatorError::AvailabilityCheckFailed)?;
-        if !available {
-            return Ok(OperatorResult::Cancelled);
-        }
-    }
-
-    // Only the outermost operator in a nesting chain captures the
-    // snapshot. Inner `call_operator` calls mutate inside the outer's
-    // span and their changes roll into the outer's diff.
-    let is_outermost = world.resource::<OperatorSession>().depth == 0;
-    let before = (is_outermost && creates_history_entry)
-        .then(|| world.resource::<ActiveSnapshotter>().0.capture(world));
-
-    world.resource_mut::<OperatorSession>().depth += 1;
-    let result = world.run_system(op.invoke);
-    world.resource_mut::<OperatorSession>().depth -= 1;
-
-    let result = result.map_err(|_| CallOperatorError::ExecuteFailed)?;
-
-    match result {
-        OperatorResult::Running if op.modal => {
-            let mut active = world.resource_mut::<ActiveModalOperator>();
-            active.id = Some(op.id);
-            active.operator_entity = Some(op_entity);
-            active.invoke_system = Some(op.invoke);
-            active.label = Some(op.label.to_string());
-            active.before_snapshot = before;
-        }
-        OperatorResult::Running | OperatorResult::Finished => {
-            finalize(world, op.label, before);
-        }
-        OperatorResult::Cancelled => {
-            // Drop the snapshot without pushing history.
-            drop(before);
-        }
-    }
-
-    Ok(result)
-}
-
-/// Capture the current state, diff against `before`, and push a
-/// `SnapshotDiff` onto [`CommandHistory`] if the scene changed.
-fn finalize(world: &mut World, label: &str, before: Option<Box<dyn SceneSnapshot>>) {
-    let Some(before) = before else { return };
-    let after = world.resource::<ActiveSnapshotter>().0.capture(world);
-    if before.equals(&*after) {
-        return;
-    }
-    world
-        .resource_mut::<CommandHistory>()
-        .push_executed(Box::new(SnapshotDiff {
-            before,
-            after,
-            label: label.to_string(),
-        }));
-}
-
-/// One undo entry. Swaps the active scene snapshot on execute / undo.
-struct SnapshotDiff {
-    before: Box<dyn SceneSnapshot>,
-    after: Box<dyn SceneSnapshot>,
-    label: String,
-}
-
-impl EditorCommand for SnapshotDiff {
-    fn execute(&mut self, world: &mut World) {
-        self.after.apply(world);
-    }
-    fn undo(&mut self, world: &mut World) {
-        self.before.apply(world);
-    }
-    fn description(&self) -> &str {
-        &self.label
-    }
-}
-
-/// Tick system added to Update by `ExtensionLoaderPlugin`. Re-runs the
-/// active modal operator's invoke system each frame; exits modal on
-/// `Finished` (committing) or `Cancelled` (discarding).
-pub fn tick_modal_operator(world: &mut World) {
-    let Some(invoke) = world.resource::<ActiveModalOperator>().invoke_system else {
-        return;
-    };
-    let result = match world.run_system(invoke) {
-        Ok(r) => r,
-        Err(err) => {
-            error!("Modal operator's invoke system failed: {err:?}; cancelling");
-            finalize_modal(world, false);
-            return;
-        }
-    };
-    match result {
-        OperatorResult::Running => {}
-        OperatorResult::Finished => finalize_modal(world, true),
-        OperatorResult::Cancelled => finalize_modal(world, false),
-    }
-}
-
-/// Exit modal mode. Commits the before-snapshot diff as a history entry
-/// if `commit`, otherwise discards it.
-fn finalize_modal(world: &mut World, commit: bool) {
-    let (label, before) = {
-        let mut active = world.resource_mut::<ActiveModalOperator>();
-        let label = active.label.take().unwrap_or_default();
-        let before = active.before_snapshot.take();
-        active.id = None;
-        active.operator_entity = None;
-        active.invoke_system = None;
-        (label, before)
-    };
-    if commit {
-        finalize(world, &label, before);
+        self.world_mut()
+            .resource_mut::<ExtensionCatalog>()
+            .register(name, kind, ctor);
+        self
     }
 }
 
@@ -530,10 +349,7 @@ pub fn unload_extension(world: &mut World, ext_entity: Entity) {
         .unwrap_or_default();
     info!("Unloading extension: {}", ext_name);
 
-    if let Some(stored) = world
-        .entity_mut(ext_entity)
-        .take::<crate::StoredExtension>()
-    {
+    if let Some(stored) = world.entity_mut(ext_entity).take::<StoredExtension>() {
         stored.0.unregister(world, ext_entity);
     }
     if let Ok(ec) = world.get_entity_mut(ext_entity) {
@@ -552,7 +368,36 @@ pub fn enable_extension(world: &mut World, name: &str) -> Option<Entity> {
     }
 
     let extension = world.resource::<ExtensionCatalog>().construct(name)?;
-    Some(crate::load_static_extension(world, extension))
+    Some(load_static_extension(world, extension))
+}
+
+/// Load an extension statically. Spawns an `Extension` entity, runs
+/// `extension.register()` against it, returns the entity.
+///
+/// Takes `&mut World` (not `&mut App`) so this can be called from
+/// world-scoped contexts like observer callbacks. BEI input context
+/// registration belongs in
+/// [`crate::JackdawExtension::register_input_context`], which is called
+/// at catalog registration time with App access.
+pub fn load_static_extension(
+    world: &mut World,
+    extension: Box<dyn crate::JackdawExtension>,
+) -> Entity {
+    let name = extension.dyn_name();
+    info!("Loading extension: {}", name);
+
+    let extension_entity = world.spawn(Extension { name }).id();
+
+    let mut ctx = crate::ExtensionContext::new(world, extension_entity);
+    extension.register(&mut ctx);
+
+    // Store the extension trait object on the entity so `unload_extension`
+    // can call `unregister` before despawn.
+    world
+        .entity_mut(extension_entity)
+        .insert(StoredExtension(extension));
+
+    extension_entity
 }
 
 /// Disable a named extension by despawning its root entity.
@@ -569,21 +414,47 @@ pub fn disable_extension(world: &mut World, name: &str) -> bool {
     true
 }
 
-/// Keep [`OperatorIndex`] in sync when an operator entity is spawned.
-pub fn index_operator_on_add(
+/// Internal component holding the extension trait object for the duration
+/// of its lifetime. Used by [`unload_extension`] to invoke the optional
+/// `unregister` hook before despawning. Not part of the public API.
+#[derive(Component)]
+pub(crate) struct StoredExtension(pub(crate) Box<dyn crate::JackdawExtension>);
+
+/// Register a dylib-loaded extension into an already-running editor's
+/// catalog. Called by the runtime dylib loader (`jackdaw_loader`)
+/// which has already determined `name` and `kind` from the dylib's
+/// entry metadata. Distinct from [`ExtensionAppExt::register_extension_dynamic`],
+/// which operates on `&mut App` at startup; this one works on
+/// `&mut World` so it can be called from the install pipeline after
+/// the app is running.
+pub fn register_dylib_extension<F>(
+    world: &mut World,
+    name: impl Into<String>,
+    kind: ExtensionKind,
+    ctor: F,
+) where
+    F: Fn() -> Box<dyn crate::JackdawExtension> + Send + Sync + 'static,
+{
+    world
+        .resource_mut::<ExtensionCatalog>()
+        .register(name, kind, ctor);
+}
+
+/// Keep `OperatorIndex` in sync when an operator entity is spawned.
+pub(crate) fn index_operator_on_add(
     trigger: On<Add, OperatorEntity>,
     operators: Query<&OperatorEntity>,
     mut index: ResMut<OperatorIndex>,
 ) {
     if let Ok(op) = operators.get(trigger.event_target()) {
-        index.by_id.insert(op.id, trigger.event_target());
+        index.insert(op.id, trigger.event_target());
     }
 }
 
-/// Keep [`OperatorIndex`] in sync and free the operator's `SystemId`s
+/// Keep `OperatorIndex` in sync and free the operator's `SystemId`s
 /// when its entity is removed, so they don't leak across enable /
 /// disable cycles.
-pub fn deindex_and_cleanup_operator_on_remove(
+pub(crate) fn deindex_and_cleanup_operator_on_remove(
     trigger: On<Remove, OperatorEntity>,
     operators: Query<&OperatorEntity>,
     mut index: ResMut<OperatorIndex>,
@@ -593,7 +464,7 @@ pub fn deindex_and_cleanup_operator_on_remove(
         return;
     };
     info!("Unregistering operator: {}", op.id);
-    index.by_id.remove(op.id);
+    index.remove(op.id);
     let (exec, inv, check) = (op.execute, op.invoke, op.availability_check);
     commands.queue(move |world: &mut World| {
         let _ = world.unregister_system(exec);
@@ -610,7 +481,7 @@ pub fn deindex_and_cleanup_operator_on_remove(
 /// purge it from the live dock tree and every stored workspace tree when
 /// its marker entity despawns, so disabling an extension visibly removes
 /// its windows.
-pub fn cleanup_window_on_remove(
+pub(crate) fn cleanup_window_on_remove(
     trigger: On<Remove, RegisteredWindow>,
     windows: Query<&RegisteredWindow>,
     mut registry: ResMut<jackdaw_panels::WindowRegistry>,
@@ -629,7 +500,7 @@ pub fn cleanup_window_on_remove(
 }
 
 /// Unregister a workspace when its marker entity despawns.
-pub fn cleanup_workspace_on_remove(
+pub(crate) fn cleanup_workspace_on_remove(
     trigger: On<Remove, RegisteredWorkspace>,
     workspaces: Query<&RegisteredWorkspace>,
     mut registry: ResMut<jackdaw_panels::WorkspaceRegistry>,
@@ -641,7 +512,7 @@ pub fn cleanup_workspace_on_remove(
 
 /// Remove a panel extension section from the registry when its marker
 /// entity despawns.
-pub fn cleanup_panel_extension_on_remove(
+pub(crate) fn cleanup_panel_extension_on_remove(
     trigger: On<Remove, RegisteredPanelExtension>,
     registrations: Query<&RegisteredPanelExtension>,
     mut registry: ResMut<crate::PanelExtensionRegistry>,
@@ -651,17 +522,16 @@ pub fn cleanup_panel_extension_on_remove(
     }
 }
 
-/// Log menu-entry registrations. Actual menu rebuilds are driven by
-/// the main crate's `MenuBarDirty` flag because this crate doesn't know
-/// the menu-bar implementation.
-pub fn log_menu_entry_on_add(
-    trigger: On<Add, RegisteredMenuEntry>,
-    entries: Query<&RegisteredMenuEntry>,
+fn cleanup_resource_on_remove(
+    trigger: On<Remove, ExtensionResourceOf>,
+    resource_id: Query<&ExtensionResourceOf>,
+    mut commands: Commands,
 ) {
-    if let Ok(entry) = entries.get(trigger.event_target()) {
-        info!(
-            "Registered menu entry: {} > {} -> {}",
-            entry.menu, entry.label, entry.operator_id
-        );
-    }
+    let Ok(relation) = resource_id.get(trigger.entity) else {
+        return;
+    };
+    let component_id = relation.resource_id.0;
+    commands.queue(move |world: &mut World| {
+        world.remove_resource_by_id(component_id);
+    });
 }

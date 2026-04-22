@@ -8,7 +8,11 @@ repository = "https://github.com/jbuehler23/jackdaw"
 
 [dependencies]
 bevy.workspace = true
-jackdaw_api.workspace = true
+# Depend on the internal crate directly: the loader needs access to
+# the `ffi` module (ExtensionEntry, GameEntry layouts) and to
+# editor-only registration helpers that `jackdaw_api` deliberately
+# keeps out of the public surface for third-party extensions.
+jackdaw_api_internal.workspace = true
 libloading = "0.8"
 dirs.workspace = true
 

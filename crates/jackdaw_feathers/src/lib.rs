@@ -23,6 +23,7 @@ pub mod status_bar;
 pub mod text_edit;
 pub mod toast;
 pub mod tokens;
+pub mod tooltip;
 pub mod tree_view;
 pub mod utils;
 pub mod variant_edit;
@@ -59,6 +60,7 @@ impl Plugin for EditorFeathersPlugin {
             menu_bar::plugin,
             context_menu::plugin,
             panel_header::plugin,
+            tooltip::plugin,
         ));
     }
 }
