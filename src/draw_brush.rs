@@ -429,6 +429,10 @@ fn spawn_brush_or_group(world: &mut World, data: &BrushOrGroup) -> Entity {
     }
 }
 
+/// Per-command undo entry for brush spawns from the legacy non-
+/// operator paths (face extrude, brush clip/split). The draw-brush
+/// modal operator doesn't push this — its `SnapshotDiff` covers the
+/// whole transaction.
 pub(crate) struct CreateBrushCommand {
     pub data: BrushData,
 }
@@ -1289,13 +1293,6 @@ fn spawn_drawn_brush(active: &ActiveDraw, commands: &mut Commands) {
             selection.entities = vec![entity];
             world.entity_mut(entity).insert(Selected);
         }
-
-        // Store brush data for undo
-        let cmd = CreateBrushCommand {
-            data: brush_data_from_entity(world, entity),
-        };
-        let mut history = world.resource_mut::<CommandHistory>();
-        history.push_executed(Box::new(cmd));
     });
 }
 
@@ -1462,21 +1459,13 @@ fn append_to_brush(active: &ActiveDraw, commands: &mut Commands) {
 
         let new_brush = Brush { faces: new_faces };
 
-        // Apply (ECS + AST)
+        // Apply (ECS + AST). Undo is handled by the enclosing
+        // `viewport.draw_brush_modal` operator's snapshot diff; no
+        // per-command push needed here.
         crate::brush::sync_brush_to_ast(world, target_entity, &new_brush);
         if let Some(mut brush) = world.get_mut::<Brush>(target_entity) {
             *brush = new_brush.clone();
         }
-
-        // Undo command
-        let cmd = crate::brush::SetBrush {
-            entity: target_entity,
-            old: old_brush,
-            new: new_brush,
-            label: "Append brush geometry".to_string(),
-        };
-        let mut history = world.resource_mut::<CommandHistory>();
-        history.push_executed(Box::new(cmd));
     });
 }
 
@@ -1714,13 +1703,6 @@ fn spawn_polygon_brush(active: &ActiveDraw, commands: &mut Commands) {
             selection.entities = vec![entity];
             world.entity_mut(entity).insert(Selected);
         }
-
-        // Store brush data for undo
-        let cmd = CreateBrushCommand {
-            data: brush_data_from_entity(world, entity),
-        };
-        let mut history = world.resource_mut::<CommandHistory>();
-        history.push_executed(Box::new(cmd));
     });
 }
 

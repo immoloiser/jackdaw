@@ -1658,11 +1658,20 @@ pub(crate) fn clear_scene_entities(world: &mut World) {
 /// Despawn every non-editor scene entity, leaving editor infrastructure
 /// (cameras, grids, gizmos) and the undo/redo stacks intact. Used by
 /// snapshot apply during undo/redo.
+///
+/// `bevy_enhanced_input`'s `Action<A>` component auto-inserts a
+/// `Name` component (see its `#[require(Name::new(any::type_name::<A>()), …)]`),
+/// so BEI action entities are otherwise indistinguishable from
+/// scene roots. They also carry the non-generic `ActionSettings`
+/// marker, so excluding those keeps every operator's input routing
+/// alive across an `apply_ast_to_world` pass — without action
+/// entities in `Actions<CoreExtensionInputContext>`, BEI emits no
+/// `Fire` events and every editor keybind goes silent.
 pub(crate) fn despawn_scene_entities(world: &mut World) {
     let editor_set = collect_editor_entities(world);
 
     let roots: Vec<Entity> = world
-        .query_filtered::<Entity, With<Name>>()
+        .query_filtered::<Entity, (With<Name>, Without<bevy_enhanced_input::prelude::ActionSettings>)>()
         .iter(world)
         .filter(|e| !editor_set.contains(e))
         .collect();
@@ -1701,6 +1710,19 @@ pub fn apply_ast_to_world(world: &mut World, ast: &jackdaw_jsn::SceneJsnAst) {
         .entities
         .clear();
     crate::hierarchy::clear_all_tree_rows(world);
+
+    // Reset volatile tool state so an undo/redo can't leave the
+    // draw-brush modal "half-active" — i.e. `DrawBrushState.active`
+    // lingering as `Some` after the scene it referenced was ripped
+    // out. A stale `Some` would make the next activate-modal return
+    // immediately (modal-already-suspected path) and the B key
+    // appear dead until the user reloaded the project.
+    if let Some(mut draw_state) =
+        world.get_resource_mut::<crate::draw_brush::DrawBrushState>()
+    {
+        draw_state.active = None;
+    }
+    debug!("apply_ast_to_world: cleared DrawBrushState.active and selection before scene reload");
 
     despawn_scene_entities(world);
 
