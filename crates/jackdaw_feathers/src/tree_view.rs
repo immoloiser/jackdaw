@@ -87,14 +87,14 @@ pub fn tree_row(
 
                 for child in children.iter() {
                     // Toggle TreeRowChildren display
-                    if children_container.contains(child) {
-                        if let Ok(mut node) = node_query.get_mut(child) {
-                            node.display = if expanded.0 {
-                                Display::Flex
-                            } else {
-                                Display::None
-                            };
-                        }
+                    if children_container.contains(child)
+                        && let Ok(mut node) = node_query.get_mut(child)
+                    {
+                        node.display = if expanded.0 {
+                            Display::Flex
+                        } else {
+                            Display::None
+                        };
                     }
 
                     // Update chevron: TreeRowContent -> TreeNodeExpandToggle -> Text
@@ -400,8 +400,7 @@ fn category_dot(category: EntityCategory, icon_font: &Handle<Font>) -> impl Bund
     let icon_char = match category {
         EntityCategory::Camera => Icon::Video,
         EntityCategory::Light => Icon::Lightbulb,
-        EntityCategory::Mesh => Icon::Box,
-        EntityCategory::Scene => Icon::Box,
+        EntityCategory::Mesh | EntityCategory::Scene => Icon::Box,
         EntityCategory::Entity => Icon::Dot,
     };
     (
@@ -425,8 +424,8 @@ fn category_dot(category: EntityCategory, icon_font: &Handle<Font>) -> impl Bund
     )
 }
 
-/// Walk up the ChildOf chain from any deeply-nested UI entity until we find
-/// a TreeNode ancestor, then return its source entity.
+/// Walk up the [`ChildOf`] chain from any deeply-nested UI entity until we find
+/// a [`TreeNode`] ancestor, then return its source entity.
 fn find_source_entity(
     entity: Entity,
     parents: &Query<&ChildOf>,
@@ -542,60 +541,55 @@ pub fn tree_keyboard_navigation(
         focused.0 = prev;
     }
 
-    if keyboard.just_pressed(KeyCode::ArrowLeft) {
-        if let Some(focused_entity) = focused.0 {
-            if let Ok((entity, expanded, _)) = tree_nodes.get(focused_entity) {
-                if expanded.0 {
-                    // Collapse the node
-                    commands.entity(entity).insert(TreeNodeExpanded(false));
-                }
-                // If already collapsed, could move to parent, but skipping for now.
-            }
-        }
+    if keyboard.just_pressed(KeyCode::ArrowLeft)
+        && let Some(focused_entity) = focused.0
+        && let Ok((entity, expanded, _)) = tree_nodes.get(focused_entity)
+        && expanded.0
+    {
+        // Collapse the node
+        commands.entity(entity).insert(TreeNodeExpanded(false));
     }
+    // If already collapsed, could move to parent, but skipping for now.
 
-    if keyboard.just_pressed(KeyCode::ArrowRight) {
-        if let Some(focused_entity) = focused.0 {
-            if let Ok((entity, expanded, children)) = tree_nodes.get(focused_entity) {
-                let has_children = children.iter().any(|c| tree_row_children.contains(c));
-                if has_children && !expanded.0 {
-                    // Expand the node
-                    commands.entity(entity).insert(TreeNodeExpanded(true));
-                }
-            }
+    if keyboard.just_pressed(KeyCode::ArrowRight)
+        && let Some(focused_entity) = focused.0
+        && let Ok((entity, expanded, children)) = tree_nodes.get(focused_entity)
+    {
+        let has_children = children.iter().any(|c| tree_row_children.contains(c));
+        if has_children && !expanded.0 {
+            // Expand the node
+            commands.entity(entity).insert(TreeNodeExpanded(true));
         }
     }
 
     // Enter/Space: select focused node
-    if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space) {
-        if let Some(focused_entity) = focused.0 {
-            if let Ok(tree_node) = tree_node_query.get(focused_entity) {
-                // Find the TreeRowContent child to use as event target
-                if let Ok((_, _, children)) = tree_nodes.get(focused_entity) {
-                    for child in children.iter() {
-                        if tree_row_contents.contains(child) {
-                            commands.trigger(TreeRowClicked {
-                                entity: child,
-                                source_entity: tree_node.0,
-                            });
-                            break;
-                        }
-                    }
+    if (keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space))
+        && let Some(focused_entity) = focused.0
+        && let Ok(tree_node) = tree_node_query.get(focused_entity)
+    {
+        // Find the TreeRowContent child to use as event target
+        if let Ok((_, _, children)) = tree_nodes.get(focused_entity) {
+            for child in children.iter() {
+                if tree_row_contents.contains(child) {
+                    commands.trigger(TreeRowClicked {
+                        entity: child,
+                        source_entity: tree_node.0,
+                    });
+                    break;
                 }
             }
         }
     }
 
     // F2: start inline rename
-    if keyboard.just_pressed(KeyCode::F2) {
-        if let Some(focused_entity) = focused.0 {
-            if let Ok(tree_node) = tree_node_query.get(focused_entity) {
-                commands.trigger(TreeRowStartRename {
-                    entity: focused_entity,
-                    source_entity: tree_node.0,
-                });
-            }
-        }
+    if keyboard.just_pressed(KeyCode::F2)
+        && let Some(focused_entity) = focused.0
+        && let Ok(tree_node) = tree_node_query.get(focused_entity)
+    {
+        commands.trigger(TreeRowStartRename {
+            entity: focused_entity,
+            source_entity: tree_node.0,
+        });
     }
 }
 
@@ -635,10 +629,10 @@ fn collect_visible_rows_recursive(
     };
 
     // Check if this node is visible (Display::Flex or default)
-    if let Ok(node) = node_query.get(entity) {
-        if node.display == Display::None {
-            return;
-        }
+    if let Ok(node) = node_query.get(entity)
+        && node.display == Display::None
+    {
+        return;
     }
 
     result.push(entity);

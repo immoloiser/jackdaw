@@ -25,7 +25,7 @@ use crate::inspector::{ComponentDisplay, InspectorGroupSection, component_displa
 #[derive(Component)]
 pub struct RemoteInspector;
 
-/// Tracks which ComponentIds were temporarily inserted into the proxy for inspection.
+/// Tracks which `ComponentIds` were temporarily inserted into the proxy for inspection.
 #[derive(Component, Default)]
 struct PopulatedComponents(Vec<ComponentId>);
 
@@ -429,10 +429,10 @@ fn despawn_inspector_children(world: &mut World, inspector_entity: Entity) {
         .unwrap_or_default();
 
     for child in children {
-        if world.get::<ComponentDisplay>(child).is_some() {
-            if let Ok(ec) = world.get_entity_mut(child) {
-                ec.despawn();
-            }
+        if world.get::<ComponentDisplay>(child).is_some()
+            && let Ok(ec) = world.get_entity_mut(child)
+        {
+            ec.despawn();
         }
     }
 }

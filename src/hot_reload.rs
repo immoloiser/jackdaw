@@ -71,7 +71,7 @@ struct HotReloadState {
     pending_install: Option<PathBuf>,
 }
 
-/// Cargo's write fires a burst of events (Create, Modify, CloseWrite).
+/// Cargo's write fires a burst of events (Create, Modify, `CloseWrite`).
 /// Collapse them into one install.
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(200);
 
@@ -94,14 +94,14 @@ fn start_watcher(
 
     // notify's `watch()` errors on a nonexistent path. A user who
     // clones a project but hasn't built it yet lacks target/debug.
-    if !target_debug.is_dir() {
-        if let Err(e) = std::fs::create_dir_all(&target_debug) {
-            warn!(
-                "HotReload: could not create {} for watching: {e}",
-                target_debug.display()
-            );
-            return;
-        }
+    if !target_debug.is_dir()
+        && let Err(e) = std::fs::create_dir_all(&target_debug)
+    {
+        warn!(
+            "HotReload: could not create {} for watching: {e}",
+            target_debug.display()
+        );
+        return;
     }
 
     let pending = Arc::clone(&state.pending);
@@ -233,7 +233,7 @@ fn drain_artifact_changes(
 /// Exclusive system in Last. Runs the full
 /// `extensions_dialog::handle_install_from_path` pipeline: atomic
 /// rename into the per-user games dir, teardown of the prior dylib,
-/// dlopen, new build(), catalog update.
+/// dlopen, new `build()`, catalog update.
 fn apply_pending_install(world: &mut World) {
     let artifact_opt = world
         .resource_mut::<HotReloadState>()
@@ -254,10 +254,10 @@ fn apply_pending_install(world: &mut World) {
         }
         Err(_) => {}
     }
-    if let Some(arc) = outcome_arc {
-        if let Ok(mut slot) = arc.lock() {
-            *slot = Some(result.map(|_| ()));
-        }
+    if let Some(arc) = outcome_arc
+        && let Ok(mut slot) = arc.lock()
+    {
+        *slot = Some(result.map(|_| ()));
     }
 }
 

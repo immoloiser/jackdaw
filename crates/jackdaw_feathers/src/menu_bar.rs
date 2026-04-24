@@ -14,7 +14,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(on_menu_bar_item_out);
 }
 
-/// When a dropdown item is clicked, fire the MenuAction.
+/// When a dropdown item is clicked, fire the [`MenuAction`].
 fn on_dropdown_item_click(
     event: On<ButtonClickEvent>,
     items: Query<&MenuBarDropdownItem>,
@@ -28,7 +28,7 @@ fn on_dropdown_item_click(
     });
 }
 
-/// Handle click on a MenuBarItem: find the item by walking up from the event target.
+/// Handle click on a [`MenuBarItem`]: find the item by walking up from the event target.
 fn on_menu_bar_item_click(
     mut click: On<Pointer<Click>>,
     mut commands: Commands,
@@ -75,10 +75,10 @@ fn on_menu_bar_item_over(
     parents: Query<&ChildOf>,
     mut bg_query: Query<&mut BackgroundColor>,
 ) {
-    if let Some(entity) = find_ancestor(hover.event_target(), &items, &parents) {
-        if let Ok(mut bg) = bg_query.get_mut(entity) {
-            bg.0 = tokens::HOVER_BG;
-        }
+    if let Some(entity) = find_ancestor(hover.event_target(), &items, &parents)
+        && let Ok(mut bg) = bg_query.get_mut(entity)
+    {
+        bg.0 = tokens::HOVER_BG;
     }
 }
 
@@ -88,14 +88,14 @@ fn on_menu_bar_item_out(
     parents: Query<&ChildOf>,
     mut bg_query: Query<&mut BackgroundColor>,
 ) {
-    if let Some(entity) = find_ancestor(out.event_target(), &items, &parents) {
-        if let Ok(mut bg) = bg_query.get_mut(entity) {
-            bg.0 = Color::NONE;
-        }
+    if let Some(entity) = find_ancestor(out.event_target(), &items, &parents)
+        && let Ok(mut bg) = bg_query.get_mut(entity)
+    {
+        bg.0 = Color::NONE;
     }
 }
 
-/// Walk up from `start` through ChildOf to find an entity with `MenuBarItem`.
+/// Walk up from `start` through [`ChildOf`] to find an entity with `MenuBarItem`.
 fn find_ancestor(
     start: Entity,
     items: &Query<Entity, With<MenuBarItem>>,

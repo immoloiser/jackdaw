@@ -1,12 +1,12 @@
 //! Pure data model for the dock layout.
 //!
-//! Mature docking systems (egui_dock, Dear ImGui, Dockview) separate the
+//! Mature docking systems (`egui_dock`, Dear `ImGui`, Dockview) separate the
 //! layout *data* from the UI *entities*. Mutations happen on the tree; a
 //! reconciler materializes the tree into UI each frame. This module owns
 //! the data side. No Bevy UI imports.
 //!
 //! Binary tree: every split has exactly two children. Multi-way layouts
-//! are nested binary splits. Matches egui_dock's `Node` enum and ImGui's
+//! are nested binary splits. Matches `egui_dock`'s `Node` enum and `ImGui`'s
 //! `DockNode.ChildNodes[2]`.
 
 use std::collections::HashMap;
@@ -365,10 +365,10 @@ impl DockTree {
     /// Set which window is active in a leaf. No-op if the window isn't in
     /// the leaf's tab list.
     pub fn set_active(&mut self, leaf: NodeId, window_id: &str) {
-        if let Some(DockNode::Leaf(l)) = self.nodes.get_mut(&leaf) {
-            if l.windows.iter().any(|w| w == window_id) {
-                l.active = Some(window_id.to_string());
-            }
+        if let Some(DockNode::Leaf(l)) = self.nodes.get_mut(&leaf)
+            && l.windows.iter().any(|w| w == window_id)
+        {
+            l.active = Some(window_id.to_string());
         }
     }
 
@@ -506,7 +506,7 @@ impl DockTree {
 }
 
 /// Generate a unique synthetic area id for a newly-created split leaf.
-/// Pairs the source window with the new leaf's NodeId so independent
+/// Pairs the source window with the new leaf's `NodeId` so independent
 /// splits of the same window don't collide.
 fn fresh_area_id(window_id: &str, leaf_id: NodeId) -> String {
     format!("split.{window_id}.{}", leaf_id.0)
@@ -518,7 +518,7 @@ mod tests {
 
     fn leaf(area_id: &str, windows: &[&str]) -> DockLeaf {
         DockLeaf::new(area_id, DockAreaStyle::TabBar)
-            .with_windows(windows.iter().map(|s| s.to_string()).collect())
+            .with_windows(windows.iter().map(ToString::to_string).collect())
     }
 
     #[test]

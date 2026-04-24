@@ -207,11 +207,11 @@ fn apply_last_material(entity: Entity) -> impl FnOnce(&mut World) {
             .resource::<crate::brush::LastUsedMaterial>()
             .material
             .clone();
-        if let Some(mat) = last_mat {
-            if let Some(mut brush) = world.get_mut::<crate::brush::Brush>(entity) {
-                for face in &mut brush.faces {
-                    face.material = mat.clone();
-                }
+        if let Some(mat) = last_mat
+            && let Some(mut brush) = world.get_mut::<crate::brush::Brush>(entity)
+        {
+            for face in &mut brush.faces {
+                face.material = mat.clone();
             }
         }
     }
@@ -372,10 +372,10 @@ pub fn duplicate_selected(world: &mut World) {
             while base.ends_with(" (Copy)") {
                 base.truncate(base.len() - 7);
             }
-            if let Some(pos) = base.rfind(' ') {
-                if base[pos + 1..].parse::<u32>().is_ok() {
-                    base.truncate(pos);
-                }
+            if let Some(pos) = base.rfind(' ')
+                && base[pos + 1..].parse::<u32>().is_ok()
+            {
+                base.truncate(pos);
             }
 
             // Find highest existing number for this base name
@@ -385,12 +385,11 @@ pub fn duplicate_selected(world: &mut World) {
                 let s = existing.as_str();
                 if s == base {
                     max_num = max_num.max(1);
-                } else if let Some(rest) = s.strip_prefix(base.as_str()) {
-                    if let Some(num_str) = rest.strip_prefix(' ') {
-                        if let Ok(n) = num_str.parse::<u32>() {
-                            max_num = max_num.max(n);
-                        }
-                    }
+                } else if let Some(rest) = s.strip_prefix(base.as_str())
+                    && let Some(num_str) = rest.strip_prefix(' ')
+                    && let Ok(n) = num_str.parse::<u32>()
+                {
+                    max_num = max_num.max(n);
                 }
             }
 
@@ -557,9 +556,9 @@ pub fn handle_entity_keys(
     } else if reset_scale {
         reset_transform_selected(world, TransformReset::Scale);
     } else if unhide_all {
-        world.run_system_cached(unhide_all_entities)?
+        world.run_system_cached(unhide_all_entities)?;
     } else if hide_unselected {
-        world.run_system_cached(hide_all_entities)?
+        world.run_system_cached(hide_all_entities)?;
     } else if do_hide_selected {
         hide_selected(world);
     } else if any_rotation {
@@ -570,7 +569,7 @@ pub fn handle_entity_keys(
             cameras
                 .iter(world)
                 .next()
-                .map(|gt| camera_snapped_rotation_axes(gt))
+                .map(camera_snapped_rotation_axes)
                 .unwrap_or((Vec3::Y, Vec3::NEG_Z, Vec3::X))
         };
 
@@ -1008,10 +1007,10 @@ fn hide_all_entities(world: &mut World, scene_entities: &mut SystemState<SceneEn
 /// `BEVY_ASSET_ROOT`, `CARGO_MANIFEST_DIR`, or the executable's parent directory.
 fn to_asset_path(path: &str) -> String {
     let path = Path::new(path);
-    if let Some(assets_dir) = get_assets_base_dir() {
-        if let Ok(relative) = path.strip_prefix(&assets_dir) {
-            return relative.to_string_lossy().to_string();
-        }
+    if let Some(assets_dir) = get_assets_base_dir()
+        && let Ok(relative) = path.strip_prefix(&assets_dir)
+    {
+        return relative.to_string_lossy().to_string();
     }
     // Fallback: if already a simple relative path, use as-is
     if !path.is_absolute() {
@@ -1026,8 +1025,8 @@ fn to_asset_path(path: &str) -> String {
 }
 
 /// Get the absolute path of Bevy's assets directory.
-/// Uses the last-opened ProjectRoot if available, then falls back to
-/// the standard FileAssetReader lookup (BEVY_ASSET_ROOT / CARGO_MANIFEST_DIR / exe dir).
+/// Uses the last-opened `ProjectRoot` if available, then falls back to
+/// the standard `FileAssetReader` lookup (`BEVY_ASSET_ROOT` / `CARGO_MANIFEST_DIR` / exe dir).
 fn get_assets_base_dir() -> Option<std::path::PathBuf> {
     // Try ProjectRoot via recent projects config
     if let Some(project_dir) = crate::project::read_last_project() {

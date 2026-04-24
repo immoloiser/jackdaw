@@ -176,10 +176,10 @@ fn set_parent(world: &mut World, entity: Entity, parent: Option<Entity>) {
         } else {
             None
         };
-    if let Some(new_tf) = new_transform {
-        if let Some(mut tf) = world.get_mut::<Transform>(entity) {
-            *tf = new_tf;
-        }
+    if let Some(new_tf) = new_transform
+        && let Some(mut tf) = world.get_mut::<Transform>(entity)
+    {
+        *tf = new_tf;
     }
 
     // Update AST parent and (if changed) Transform
@@ -481,7 +481,7 @@ pub(crate) fn deselect_entities(world: &mut World, entities: &[Entity]) {
     selection.entities.retain(|e| !entities.contains(e));
 }
 
-/// Create a DynamicScene snapshot of a single entity and all its descendants.
+/// Create a `DynamicScene` snapshot of a single entity and all its descendants.
 pub(crate) fn snapshot_entity(world: &World, entity: Entity) -> DynamicScene {
     let mut entities = Vec::new();
     collect_entity_ids(world, entity, &mut entities);
@@ -508,7 +508,7 @@ pub(crate) fn collect_entity_ids(world: &World, entity: Entity, out: &mut Vec<En
     }
 }
 
-/// Rebuild a DynamicScene by copying its entity data (since DynamicScene doesn't impl Clone).
+/// Rebuild a `DynamicScene` by copying its entity data (since `DynamicScene` doesn't impl Clone).
 pub(crate) fn snapshot_rebuild(scene: &DynamicScene) -> DynamicScene {
     DynamicScene {
         resources: scene.resources.iter().map(|r| r.to_dynamic()).collect(),
@@ -598,14 +598,14 @@ impl EditorCommand for SetJsnField {
             // If the user explicitly edits a derived component, promote it to
             // "authored" so the change persists on save. Remember we did so,
             // so undo can restore the derived state.
-            if let Some(node) = ast.node_for_entity_mut(self.entity) {
-                if node.derived_components.remove(&self.type_path) {
-                    self.was_derived = true;
-                    info!(
-                        "Promoted derived component '{}' to authored (user edited it)",
-                        self.type_path
-                    );
-                }
+            if let Some(node) = ast.node_for_entity_mut(self.entity)
+                && node.derived_components.remove(&self.type_path)
+            {
+                self.was_derived = true;
+                info!(
+                    "Promoted derived component '{}' to authored (user edited it)",
+                    self.type_path
+                );
             }
         }
         apply_jsn_field_to_ecs(
@@ -630,10 +630,10 @@ impl EditorCommand for SetJsnField {
                 &registry,
             );
             // Restore derived state if execute promoted it to authored.
-            if self.was_derived {
-                if let Some(node) = ast.node_for_entity_mut(self.entity) {
-                    node.derived_components.insert(self.type_path.clone());
-                }
+            if self.was_derived
+                && let Some(node) = ast.node_for_entity_mut(self.entity)
+            {
+                node.derived_components.insert(self.type_path.clone());
             }
         }
         apply_jsn_field_to_ecs(
@@ -651,7 +651,7 @@ impl EditorCommand for SetJsnField {
 }
 
 /// Apply a JSON value to an ECS component  -- either full component replacement
-/// (empty field_path) or field-level update.
+/// (empty `field_path`) or field-level update.
 fn apply_jsn_field_to_ecs(
     world: &mut World,
     entity: Entity,
@@ -691,7 +691,7 @@ fn apply_jsn_field_to_ecs(
     }
 }
 
-/// Convert a serde_json::Value into the matching reflect primitive and apply it.
+/// Convert a `serde_json::Value` into the matching reflect primitive and apply it.
 /// Falls back to Bevy's typed deserialization for complex types (enums, structs)
 /// that can't be handled by simple primitive downcasts.
 fn apply_json_to_reflect(
@@ -747,7 +747,7 @@ fn apply_json_to_reflect(
     }
 }
 
-/// Look up the field's TypeRegistration via its represented type info and run
+/// Look up the field's `TypeRegistration` via its represented type info and run
 /// `TypedReflectDeserializer` on the JSON, then apply the result.
 fn try_typed_deserialize(
     field: &mut dyn bevy::reflect::PartialReflect,

@@ -55,8 +55,8 @@ impl AssetLoader for JsnAssetLoader {
         };
 
         // Build a DynamicScene by spawning into a temporary world
-        let scene = build_dynamic_scene(&jsn.scene, &self.type_registry)
-            .map_err(|e| JsnLoadError::Scene(e))?;
+        let scene =
+            build_dynamic_scene(&jsn.scene, &self.type_registry).map_err(JsnLoadError::Scene)?;
 
         Ok(scene)
     }
@@ -66,7 +66,7 @@ impl AssetLoader for JsnAssetLoader {
     }
 }
 
-/// Spawn JsnEntity list into a temp world, then extract a DynamicScene.
+/// Spawn `JsnEntity` list into a temp world, then extract a `DynamicScene`.
 fn build_dynamic_scene(
     entities: &[JsnEntity],
     type_registry: &TypeRegistryArc,
@@ -83,10 +83,10 @@ fn build_dynamic_scene(
 
     // Second pass: set parents (ChildOf)
     for (i, jsn) in entities.iter().enumerate() {
-        if let Some(parent_idx) = jsn.parent {
-            if let Some(&parent_entity) = spawned.get(parent_idx) {
-                world.entity_mut(spawned[i]).insert(ChildOf(parent_entity));
-            }
+        if let Some(parent_idx) = jsn.parent
+            && let Some(&parent_entity) = spawned.get(parent_idx)
+        {
+            world.entity_mut(spawned[i]).insert(ChildOf(parent_entity));
         }
     }
 

@@ -25,10 +25,10 @@ impl Selection {
     pub fn select_single(&mut self, commands: &mut Commands, entity: Entity) {
         // Remove Selected from all currently selected entities
         for &e in &self.entities {
-            if e != entity {
-                if let Ok(mut ec) = commands.get_entity(e) {
-                    ec.remove::<Selected>();
-                }
+            if e != entity
+                && let Ok(mut ec) = commands.get_entity(e)
+            {
+                ec.remove::<Selected>();
             }
         }
         self.entities.clear();

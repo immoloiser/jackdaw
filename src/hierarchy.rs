@@ -50,7 +50,7 @@ pub struct HierarchyPanel;
 pub struct HierarchyTreeContainer;
 
 /// Controls whether the hierarchy shows all entities or only named ones.
-/// `false` = named only (default), `true` = all entities (minus EditorEntity).
+/// `false` = named only (default), `true` = all entities (minus `EditorEntity`).
 #[derive(Resource, Default)]
 pub struct HierarchyShowAll(pub bool);
 
@@ -143,7 +143,7 @@ fn has_visible_children(world: &World, entity: Entity) -> bool {
 }
 
 /// Spawn a single (non-recursive) tree row for a source entity.
-/// Updates TreeIndex immediately.
+/// Updates `TreeIndex` immediately.
 fn spawn_single_tree_row(world: &mut World, source: Entity, parent_container: Entity) -> Entity {
     let label = world
         .get::<Name>(source)
@@ -383,7 +383,7 @@ fn on_name_mutated(
     }
 }
 
-/// When an entity gets a parent (ChildOf added or changed), reparent or create its tree row.
+/// When an entity gets a parent (`ChildOf` added or changed), reparent or create its tree row.
 fn on_entity_reparented(
     trigger: On<Add, ChildOf>,
     mut commands: Commands,
@@ -458,7 +458,7 @@ fn on_entity_reparented(
     });
 }
 
-/// When ChildOf is removed (entity deparented back to root, e.g. via undo of
+/// When `ChildOf` is removed (entity deparented back to root, e.g. via undo of
 /// a reparent), move its tree row back to the root container. Without this,
 /// the tree UI shows stale parent information after an undo.
 fn on_entity_deparented(
@@ -490,14 +490,14 @@ fn on_entity_removed(
 ) {
     let entity = trigger.event_target();
 
-    if let Some(tree_entity) = tree_index.get(entity) {
-        if let Ok(mut ec) = commands.get_entity(tree_entity) {
-            ec.despawn();
-        }
+    if let Some(tree_entity) = tree_index.get(entity)
+        && let Ok(mut ec) = commands.get_entity(tree_entity)
+    {
+        ec.despawn();
     }
 }
 
-/// When EditorHidden is added, remove the tree row if one exists (handles race with observers).
+/// When `EditorHidden` is added, remove the tree row if one exists (handles race with observers).
 fn on_entity_hidden(
     trigger: On<Add, EditorHidden>,
     mut commands: Commands,
@@ -505,10 +505,10 @@ fn on_entity_hidden(
 ) {
     let entity = trigger.event_target();
 
-    if let Some(tree_entity) = tree_index.get(entity) {
-        if let Ok(mut ec) = commands.get_entity(tree_entity) {
-            ec.despawn();
-        }
+    if let Some(tree_entity) = tree_index.get(entity)
+        && let Ok(mut ec) = commands.get_entity(tree_entity)
+    {
+        ec.despawn();
     }
 }
 
@@ -552,10 +552,10 @@ fn on_tree_node_expanded(
 
     commands.queue(move |world: &mut World| {
         // Double-check populated flag (guard against duplicate events)
-        if let Some(pop) = world.get::<TreeChildrenPopulated>(tree_row_entity) {
-            if pop.0 {
-                return;
-            }
+        if let Some(pop) = world.get::<TreeChildrenPopulated>(tree_row_entity)
+            && pop.0
+        {
+            return;
         }
 
         // Mark as populated
@@ -629,10 +629,10 @@ fn on_tree_row_clicked(
 
     // Set keyboard focus to the tree row containing this content
     let content_entity = event.entity;
-    if let Ok(&ChildOf(tree_row)) = parent_query.get(content_entity) {
-        if tree_nodes.contains(tree_row) {
-            focused.0 = Some(tree_row);
-        }
+    if let Ok(&ChildOf(tree_row)) = parent_query.get(content_entity)
+        && tree_nodes.contains(tree_row)
+    {
+        focused.0 = Some(tree_row);
     }
 }
 
@@ -810,10 +810,10 @@ fn handle_hierarchy_right_click(
     };
 
     // Close any existing context menu
-    if let Some(menu) = state.menu_entity.take() {
-        if let Ok(mut ec) = commands.get_entity(menu) {
-            ec.despawn();
-        }
+    if let Some(menu) = state.menu_entity.take()
+        && let Ok(mut ec) = commands.get_entity(menu)
+    {
+        ec.despawn();
     }
 
     // Find which tree row content the cursor is over by hit testing
@@ -827,11 +827,11 @@ fn handle_hierarchy_right_click(
         let pos = translation;
         let half = size / 2.0;
         let rect = Rect::from_center_half_size(pos, half);
-        if rect.contains(cursor_pos) {
-            if let Ok(tree_node) = tree_nodes.get(child_of.0) {
-                target_source = Some(tree_node.0);
-                break;
-            }
+        if rect.contains(cursor_pos)
+            && let Ok(tree_node) = tree_nodes.get(child_of.0)
+        {
+            target_source = Some(tree_node.0);
+            break;
         }
     }
 
@@ -848,10 +848,10 @@ fn handle_hierarchy_right_click(
             selection.entities.push(target);
 
             for &e in &old_entities {
-                if e != target {
-                    if let Ok(mut ec) = world.get_entity_mut(e) {
-                        ec.remove::<Selected>();
-                    }
+                if e != target
+                    && let Ok(mut ec) = world.get_entity_mut(e)
+                {
+                    ec.remove::<Selected>();
                 }
             }
             if let Ok(mut ec) = world.get_entity_mut(target) {
@@ -921,17 +921,17 @@ fn on_context_menu_action(
 
     match event.action.as_str() {
         "hierarchy.focus" => {
-            if let Some(target) = target_entity {
-                if let Ok(global_tf) = global_transforms.get(target) {
-                    let target_pos = global_tf.translation();
-                    let scale = global_tf.compute_transform().scale;
-                    let dist = (scale.length() * 3.0).max(5.0);
+            if let Some(target) = target_entity
+                && let Ok(global_tf) = global_transforms.get(target)
+            {
+                let target_pos = global_tf.translation();
+                let scale = global_tf.compute_transform().scale;
+                let dist = (scale.length() * 3.0).max(5.0);
 
-                    for mut transform in &mut camera_query {
-                        let forward = transform.forward().as_vec3();
-                        transform.translation = target_pos - forward * dist;
-                        *transform = transform.looking_at(target_pos, Vec3::Y);
-                    }
+                for mut transform in &mut camera_query {
+                    let forward = transform.forward().as_vec3();
+                    transform.translation = target_pos - forward * dist;
+                    *transform = transform.looking_at(target_pos, Vec3::Y);
                 }
             }
         }
@@ -1079,7 +1079,7 @@ fn on_visibility_toggled(
     });
 }
 
-/// Marker for inline rename text_edit entity, linking back to the label entity and source entity.
+/// Marker for inline rename `text_edit` entity, linking back to the label entity and source entity.
 #[derive(Component)]
 struct InlineRenameInput {
     label_entity: Entity,
@@ -1121,7 +1121,7 @@ fn cancel_inline_rename(
     }
 }
 
-/// Start inline rename: hide the label and spawn a text_edit sibling.
+/// Start inline rename: hide the label and spawn a `text_edit` sibling.
 fn on_tree_row_start_rename(
     event: On<TreeRowStartRename>,
     mut commands: Commands,
@@ -1196,7 +1196,7 @@ fn on_tree_row_start_rename(
     ));
 }
 
-/// Auto-focus inline rename text_edit inputs one frame after spawn.
+/// Auto-focus inline rename `text_edit` inputs one frame after spawn.
 fn auto_focus_inline_rename(
     rename_inputs: Query<(Entity, &InlineRenameInput, &Children)>,
     wrappers: Query<&jackdaw_feathers::text_edit::TextEditConfig>,
@@ -1226,7 +1226,7 @@ fn auto_focus_inline_rename(
     }
 }
 
-/// Handle TextEditCommitEvent for inline renames.
+/// Handle `TextEditCommitEvent` for inline renames.
 fn handle_inline_rename_commit(
     event: On<TextEditCommitEvent>,
     rename_inputs: Query<(Entity, &InlineRenameInput)>,
@@ -1431,10 +1431,10 @@ fn style_game_spawned_rows(
                 if !label_q.contains(maybe_label) {
                     continue;
                 }
-                if let Ok(mut tf) = text_fonts.get_mut(maybe_label) {
-                    if tf.font != italic_font.0 {
-                        tf.font = italic_font.0.clone();
-                    }
+                if let Ok(mut tf) = text_fonts.get_mut(maybe_label)
+                    && tf.font != italic_font.0
+                {
+                    tf.font = italic_font.0.clone();
                 }
             }
         }
@@ -1476,7 +1476,7 @@ fn on_show_all_changed(show_all: Res<HierarchyShowAll>, mut commands: Commands) 
     }
 }
 
-/// Despawn all tree rows and clear the TreeIndex.
+/// Despawn all tree rows and clear the `TreeIndex`.
 pub fn clear_all_tree_rows(
     world: &mut World,
     container: &mut SystemState<Single<Entity, With<HierarchyTreeContainer>>>,

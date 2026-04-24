@@ -258,16 +258,14 @@ pub(crate) fn collect_descendant_mesh_world_vertices(
     meshes: &Assets<Mesh>,
     out: &mut Vec<Vec3>,
 ) {
-    if let Ok((mesh3d, global_tf)) = mesh_query.get(entity) {
-        if let Some(mesh) = meshes.get(&mesh3d.0) {
-            if let Some(positions) = mesh
-                .attribute(Mesh::ATTRIBUTE_POSITION)
-                .and_then(|attr| attr.as_float3())
-            {
-                for pos in positions {
-                    out.push(global_tf.transform_point(Vec3::from_array(*pos)));
-                }
-            }
+    if let Ok((mesh3d, global_tf)) = mesh_query.get(entity)
+        && let Some(mesh) = meshes.get(&mesh3d.0)
+        && let Some(positions) = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .and_then(|attr| attr.as_float3())
+    {
+        for pos in positions {
+            out.push(global_tf.transform_point(Vec3::from_array(*pos)));
         }
     }
     if let Ok(children) = children_query.get(entity) {
@@ -565,7 +563,7 @@ fn draw_coordinate_indicator(
     if let Some(label_entities) = label_entities {
         let vp_node_size = viewport_node
             .single()
-            .map(|n| n.size())
+            .map(ComputedNode::size)
             .unwrap_or(Vec2::ONE);
         let render_target_size = camera.logical_viewport_size().unwrap_or(vp_node_size);
 
@@ -585,7 +583,7 @@ fn draw_coordinate_indicator(
     }
 }
 
-/// Draw wireframe cuboid for NavmeshRegion entities showing their AABB bounds.
+/// Draw wireframe cuboid for `NavmeshRegion` entities showing their AABB bounds.
 fn draw_navmesh_region_bounds(
     mut gizmos: Gizmos,
     regions: Query<&GlobalTransform, With<jackdaw_jsn::NavmeshRegion>>,

@@ -28,7 +28,7 @@ pub struct AnchorHost {
 }
 
 /// Binds an entity to a tree node. Present on both leaf-style entities
-/// (DockArea) and split wrapper entities (PanelGroup).
+/// (`DockArea`) and split wrapper entities (`PanelGroup`).
 #[derive(Component, Copy, Clone, Debug)]
 pub struct NodeBinding(pub NodeId);
 
@@ -240,10 +240,10 @@ fn reconcile_split(world: &mut World, entity: Entity, node_id: NodeId, split: &D
 
     let (child_a, _handle, child_b) = children.expect("children exist after rebuild");
 
-    if let Some(mut p) = world.entity_mut(child_a).get_mut::<Panel>() {
-        if (p.ratio - split.fraction).abs() > f32::EPSILON {
-            p.ratio = split.fraction;
-        }
+    if let Some(mut p) = world.entity_mut(child_a).get_mut::<Panel>()
+        && (p.ratio - split.fraction).abs() > f32::EPSILON
+    {
+        p.ratio = split.fraction;
     }
     if let Some(mut p) = world.entity_mut(child_b).get_mut::<Panel>() {
         let other = 1.0 - split.fraction;
@@ -345,7 +345,7 @@ fn collect_content_window_ids(world: &mut World, entity: Entity) -> Vec<String> 
     out
 }
 
-/// If `entity` currently looks like a split host (PanelGroup with three
+/// If `entity` currently looks like a split host (`PanelGroup` with three
 /// children: panel, handle, panel), return them in order.
 fn collect_split_children(world: &mut World, entity: Entity) -> Option<(Entity, Entity, Entity)> {
     let children: Vec<Entity> = world
@@ -380,7 +380,7 @@ fn set_host_visible(world: &mut World, entity: Entity, visible: bool) {
     // Find the adjacent PanelHandle sibling (index ±1 in the parent's
     // children) so we can hide/show it alongside the host.
     let adjacent_handle = {
-        let parent = world.entity(entity).get::<ChildOf>().map(|co| co.parent());
+        let parent = world.entity(entity).get::<ChildOf>().map(ChildOf::parent);
         parent.and_then(|parent| {
             let siblings: Vec<Entity> = world
                 .entity(parent)
@@ -433,13 +433,12 @@ fn set_host_visible(world: &mut World, entity: Entity, visible: bool) {
     // Handle: ONLY toggle Display. Don't touch width/height. A
     // `PanelHandle`'s natural size is a 3px stripe along the flex
     // axis; forcing 100% would make it fill the parent.
-    if let Some(handle) = adjacent_handle {
-        if let Some(mut node) = world.entity_mut(handle).get_mut::<Node>() {
-            if node.display != target {
-                node.display = target;
-                any_changed = true;
-            }
-        }
+    if let Some(handle) = adjacent_handle
+        && let Some(mut node) = world.entity_mut(handle).get_mut::<Node>()
+        && node.display != target
+    {
+        node.display = target;
+        any_changed = true;
     }
 
     // Flag the host's Panel component as changed so `recalculate_group`
@@ -594,10 +593,10 @@ fn sync_leaf_visuals(
             } else {
                 Display::None
             };
-            if let Ok(mut node) = nodes.get_mut(content_entity) {
-                if node.display != target {
-                    node.display = target;
-                }
+            if let Ok(mut node) = nodes.get_mut(content_entity)
+                && node.display != target
+            {
+                node.display = target;
             }
         }
     }

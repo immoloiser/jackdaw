@@ -136,7 +136,7 @@ impl<'w, 's> ActiveModalQuery<'w, 's> {
                 .run_system_cached(cancel_active_modal)
                 .map_err(BevyError::from);
             if let Err(err) = res {
-                error!("Failed to cancel active modal: {err}")
+                error!("Failed to cancel active modal: {err}");
             }
         });
     }
@@ -259,7 +259,7 @@ impl ExtensionCatalog {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.entries.keys().map(|s| s.as_str())
+        self.entries.keys().map(String::as_str)
     }
 
     /// Iterate IDs with their declared [`ExtensionKind`]. Useful for

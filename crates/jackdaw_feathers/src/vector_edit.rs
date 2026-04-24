@@ -154,10 +154,10 @@ pub fn vector_edit(props: VectorEditProps) -> impl Bundle {
                 color: axis_color(&suffixes, i),
             });
 
-            if i == 0 {
-                if let Some(ref label) = label {
-                    text_edit_props = text_edit_props.with_label(label.clone());
-                }
+            if i == 0
+                && let Some(ref label) = label
+            {
+                text_edit_props = text_edit_props.with_label(label.clone());
             }
 
             if let Some(&value) = default_values.get(i) {

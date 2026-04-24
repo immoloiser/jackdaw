@@ -347,19 +347,18 @@ fn handle_camera_keys(
         return;
     }
 
-    if keybinds.just_pressed(EditorAction::FocusSelected, &keyboard) {
-        if let Some(primary) = selection.primary() {
-            if let Ok(global_tf) = selected_transforms.get(primary) {
-                let target = global_tf.translation();
-                let scale = global_tf.compute_transform().scale;
-                let dist = (scale.length() * 3.0).max(5.0);
+    if keybinds.just_pressed(EditorAction::FocusSelected, &keyboard)
+        && let Some(primary) = selection.primary()
+        && let Ok(global_tf) = selected_transforms.get(primary)
+    {
+        let target = global_tf.translation();
+        let scale = global_tf.compute_transform().scale;
+        let dist = (scale.length() * 3.0).max(5.0);
 
-                for mut transform in &mut camera_query {
-                    let forward = transform.forward().as_vec3();
-                    transform.translation = target - forward * dist;
-                    *transform = transform.looking_at(target, Vec3::Y);
-                }
-            }
+        for mut transform in &mut camera_query {
+            let forward = transform.forward().as_vec3();
+            transform.translation = target - forward * dist;
+            *transform = transform.looking_at(target, Vec3::Y);
         }
     }
 
@@ -397,12 +396,12 @@ fn handle_camera_keys(
         }
     }
     for (action, index) in load_actions {
-        if keybinds.just_pressed(action, &keyboard) && *edit_mode == crate::brush::EditMode::Object
+        if keybinds.just_pressed(action, &keyboard)
+            && *edit_mode == crate::brush::EditMode::Object
+            && let Some(bookmark) = bookmarks.slots[index]
         {
-            if let Some(bookmark) = bookmarks.slots[index] {
-                for mut transform in &mut camera_query {
-                    *transform = bookmark.transform;
-                }
+            for mut transform in &mut camera_query {
+                *transform = bookmark.transform;
             }
         }
     }

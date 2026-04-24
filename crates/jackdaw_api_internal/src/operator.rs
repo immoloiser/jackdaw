@@ -48,7 +48,7 @@ pub(super) fn plugin(app: &mut App) {
 ///
 /// Extensions then bind the operator to a key via pure BEI syntax. Use
 /// BEI binding modifiers (`Press`, `Release`, `Hold`) when specific
-/// input timing is needed. See the [jackdaw_api documentation](crate).
+/// input timing is needed. See the [`jackdaw_api` documentation](crate).
 pub trait Operator: InputAction + 'static {
     const ID: &'static str;
     const LABEL: &'static str;
@@ -293,7 +293,7 @@ impl<'a> OperatorCallBuilder<'a, Commands<'_, '_>> {
                 .run_system_cached(cancel_active_modal)
                 .map_err(BevyError::from);
             if let Err(err) = res {
-                error!("Failed to cancel active modal: {err}")
+                error!("Failed to cancel active modal: {err}");
             }
         });
     }
@@ -453,12 +453,11 @@ fn dispatch_operator(
         }
         OperatorResult::Running => {}
         OperatorResult::Finished => {
-            if op.allows_undo {
-                if let Err(err) =
+            if op.allows_undo
+                && let Err(err) =
                     world.run_system_cached_with(save_history, (op.label, before_snapshot))
-                {
-                    error!("Failed to finalize modal operator {}: {err:?}", op.label);
-                }
+            {
+                error!("Failed to finalize modal operator {}: {err:?}", op.label);
             }
         }
         OperatorResult::Cancelled => {
@@ -573,18 +572,18 @@ pub(crate) fn cancel_operator(
     };
 
     let mut cancel_err = None;
-    if let Some(cancel) = op.cancel {
-        if let Err(err) = world.run_system(cancel) {
-            error!("Failed to cancel modal operator {}: {err:?}", op.label);
-            cancel_err = Some(err);
-        }
+    if let Some(cancel) = op.cancel
+        && let Err(err) = world.run_system(cancel)
+    {
+        error!("Failed to cancel modal operator {}: {err:?}", op.label);
+        cancel_err = Some(err);
     }
     let mut finalize_err = None;
-    if active.get(world).is_operator(id) {
-        if let Err(err) = world.run_system_cached_with(finalize_modal, false) {
-            error!("Failed to finalize modal operator: {err:?}");
-            finalize_err = Some(err);
-        }
+    if active.get(world).is_operator(id)
+        && let Err(err) = world.run_system_cached_with(finalize_modal, false)
+    {
+        error!("Failed to finalize modal operator: {err:?}");
+        finalize_err = Some(err);
     }
     match (cancel_err, finalize_err) {
         (Some(cancel_err), Some(_finalize_err)) => {
@@ -606,7 +605,7 @@ fn finalize_modal(
 ) {
     let Some((entity, op)) = active
         .get(world)
-        .map(|t| t.into_inner())
+        .map(Single::into_inner)
         .map(|(e, o)| (e, o.clone()))
     else {
         return;

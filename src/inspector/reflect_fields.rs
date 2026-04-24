@@ -1,6 +1,7 @@
 use crate::commands::{CommandGroup, CommandHistory, EditorCommand, SetJsnField};
 use crate::selection::Selection;
 
+use bevy::reflect::{NamedField, UnnamedField};
 use bevy::{
     ecs::reflect::{AppTypeRegistry, ReflectComponent},
     feathers::theme::ThemedText,
@@ -1732,7 +1733,7 @@ fn format_partial_reflect_value(value: &dyn PartialReflect) -> String {
     format!("{value:?}")
 }
 
-/// Handle TextEditCommitEvent for inspector field bindings (numeric and string fields).
+/// Handle `TextEditCommitEvent` for inspector field bindings (numeric and string fields).
 pub(crate) fn on_text_edit_commit(
     event: On<TextEditCommitEvent>,
     bindings: Query<(&FieldBinding, Option<&TextEditVariant>)>,
@@ -1909,10 +1910,10 @@ pub(crate) fn refresh_inspector_fields(world: &mut World) {
         let Ok(field) = reflected.reflect_path(field_path.as_str()) else {
             continue;
         };
-        if let Some(&val) = field.try_downcast_ref::<bool>() {
-            if val != *current_checked {
-                bool_updates.push((*ui_entity, val));
-            }
+        if let Some(&val) = field.try_downcast_ref::<bool>()
+            && val != *current_checked
+        {
+            bool_updates.push((*ui_entity, val));
         }
     }
 
@@ -2041,8 +2042,8 @@ pub(crate) fn refresh_enum_variants(
     }
 }
 
-/// Walk from an outer text_edit entity to find the wrapper and inner EditorTextEdit entities.
-/// Returns (wrapper_entity, inner_entity).
+/// Walk from an outer `text_edit` entity to find the wrapper and inner `EditorTextEdit` entities.
+/// Returns (`wrapper_entity`, `inner_entity`).
 fn find_text_edit_entities(world: &World, outer_entity: Entity) -> Option<(Entity, Entity)> {
     let children = world.get::<Children>(outer_entity)?;
     for child in children.iter() {
@@ -2099,7 +2100,7 @@ fn is_opaque_type(value: &dyn PartialReflect) -> bool {
         || type_path.contains("Cow<")
 }
 
-/// Spawn a ComboBox for enum fields, supporting unit-only enums with undo.
+/// Spawn a `ComboBox` for enum fields, supporting unit-only enums with undo.
 fn spawn_enum_field(
     commands: &mut Commands,
     parent: Entity,
@@ -2138,7 +2139,7 @@ fn spawn_enum_field(
     let variant_names: Vec<String> = enum_info
         .variant_names()
         .iter()
-        .map(|n| n.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
 
     if variant_names.is_empty() {
@@ -2273,7 +2274,7 @@ pub(super) fn spawn_variant_contents(
     let variant_names: Vec<String> = enum_info
         .variant_names()
         .iter()
-        .map(|n| n.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     if variant_names.is_empty() {
         return;
@@ -2317,7 +2318,7 @@ pub(super) fn spawn_variant_contents(
         };
         let field_name = enum_ref
             .name_at(i)
-            .map(|n| n.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_else(|| format!("{i}"));
         let child_path = if host.field_path.is_empty() {
             field_name.clone()
@@ -2430,10 +2431,10 @@ fn resolve_enum_info<'a>(
 
     for segment in field_path.split('.').filter(|s| !s.is_empty()) {
         let field_type_id = match current_info {
-            TypeInfo::Struct(s) => s.field(segment).map(|f| f.type_id())?,
+            TypeInfo::Struct(s) => s.field(segment).map(NamedField::type_id)?,
             TypeInfo::TupleStruct(ts) => {
                 let idx: usize = segment.parse().ok()?;
-                ts.field_at(idx).map(|f| f.type_id())?
+                ts.field_at(idx).map(UnnamedField::type_id)?
             }
             _ => return None,
         };

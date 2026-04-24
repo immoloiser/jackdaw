@@ -14,7 +14,7 @@ use bevy::prelude::*;
 const MAX_REFLECT_DEPTH: usize = 4;
 
 /// Extract a human-readable module group name from a module path.
-/// e.g., "bevy_pbr::material" -> "Render", "bevy_transform" -> "Transform"
+/// e.g., "`bevy_pbr::material`" -> "Render", "`bevy_transform`" -> "Transform"
 fn extract_module_group(module_path: Option<&str>) -> String {
     let Some(path) = module_path else {
         return "Other".to_string();
@@ -25,8 +25,7 @@ fn extract_module_group(module_path: Option<&str>) -> String {
     let name = first.strip_prefix("bevy_").unwrap_or(first);
     // Map common module names to cleaner labels
     match name {
-        "pbr" | "core_pipeline" => "Render".to_string(),
-        "render" => "Render".to_string(),
+        "pbr" | "core_pipeline" | "render" => "Render".to_string(),
         "transform" => "Transform".to_string(),
         "ecs" => "ECS".to_string(),
         "hierarchy" => "Hierarchy".to_string(),
@@ -85,7 +84,7 @@ pub trait Displayable {
     fn display(&self, entity: &mut EntityCommands, source: Entity);
 }
 
-/// Marker for Name field text_edit inputs in the inspector.
+/// Marker for Name field `text_edit` inputs in the inspector.
 #[derive(Component)]
 struct NameFieldInput(Entity);
 
@@ -212,7 +211,7 @@ fn find_text_edit_entities_local(world: &World, outer_entity: Entity) -> Option<
     None
 }
 
-/// Handle TextEditCommitEvent for Name field inputs.
+/// Handle `TextEditCommitEvent` for Name field inputs.
 /// Pushes a `SetJsnField` command so the rename can be undone.
 fn on_name_field_commit(
     event: On<jackdaw_feathers::text_edit::TextEditCommitEvent>,
@@ -378,7 +377,7 @@ pub(super) struct CustomPropertyBinding {
 #[derive(Component)]
 pub(super) struct CustomPropertyAddRow;
 
-/// Marker for the type selector ComboBox in the "Add Property" row.
+/// Marker for the type selector `ComboBox` in the "Add Property" row.
 #[derive(Component)]
 pub(super) struct CustomPropertyTypeSelector;
 

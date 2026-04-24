@@ -6,7 +6,7 @@
 //! build` with `RUSTC_WRAPPER` pointing at `jackdaw-rustc-wrapper`,
 //! which intercepts rustc and rewrites `--extern bevy=<user>.rlib`
 //! to `--extern bevy=libjackdaw_sdk.so`. That keeps the user's
-//! cdylib TypeIds in sync with the editor.
+//! cdylib `TypeIds` in sync with the editor.
 //!
 //! Why not `bevy build`? The bevy CLI's build subcommand requires
 //! a binary target and errors on library-only projects ("No
@@ -213,12 +213,11 @@ pub fn build_extension_project_with_progress(
     // metadata before kicking off the real build. Runs in the
     // current thread because it's usually <1s and we want the
     // total to be present by the first frame the UI polls.
-    if let Some(ref s) = sink {
-        if let Some(total) = estimate_total_artifacts(&project_dir) {
-            if let Ok(mut g) = s.lock() {
-                g.artifacts_total = Some(total);
-            }
-        }
+    if let Some(ref s) = sink
+        && let Some(total) = estimate_total_artifacts(&project_dir)
+        && let Ok(mut g) = s.lock()
+    {
+        g.artifacts_total = Some(total);
     }
 
     let mut cmd = Command::new("cargo");
@@ -260,10 +259,10 @@ pub fn build_extension_project_with_progress(
     let stderr_handle = thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines().map_while(Result::ok) {
-            if let Some(ref s) = stderr_sink {
-                if let Ok(mut g) = s.lock() {
-                    g.push_log(line.clone());
-                }
+            if let Some(ref s) = stderr_sink
+                && let Ok(mut g) = s.lock()
+            {
+                g.push_log(line.clone());
             }
             if let Ok(mut tail) = stderr_tail_for_thread.lock() {
                 if tail.len() >= LOG_TAIL_CAPACITY {
@@ -274,14 +273,14 @@ pub fn build_extension_project_with_progress(
         }
     });
 
-    let status = child.wait().map_err(|e| BuildError::BuildSpawn(e))?;
+    let status = child.wait().map_err(BuildError::BuildSpawn)?;
     let _ = stdout_handle.join();
     let _ = stderr_handle.join();
 
-    if let Some(ref s) = sink {
-        if let Ok(mut g) = s.lock() {
-            g.finished = true;
-        }
+    if let Some(ref s) = sink
+        && let Ok(mut g) = s.lock()
+    {
+        g.finished = true;
     }
 
     if !status.success() {
@@ -325,7 +324,7 @@ fn parse_json_line(line: &str, sink: Option<&Arc<Mutex<BuildProgress>>>) {
             .get("target")
             .and_then(|t| t.get("name"))
             .and_then(|n| n.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         if let Ok(mut g) = sink.lock() {
             g.artifacts_done = g.artifacts_done.saturating_add(1);
             if let Some(n) = name {
@@ -340,11 +339,10 @@ fn parse_json_line(line: &str, sink: Option<&Arc<Mutex<BuildProgress>>>) {
             .get("message")
             .and_then(|m| m.get("rendered"))
             .and_then(|r| r.as_str())
+            && let Ok(mut g) = sink.lock()
         {
-            if let Ok(mut g) = sink.lock() {
-                for l in rendered.lines().take(LOG_TAIL_CAPACITY) {
-                    g.push_log(l.to_string());
-                }
+            for l in rendered.lines().take(LOG_TAIL_CAPACITY) {
+                g.push_log(l.to_string());
             }
         }
     }

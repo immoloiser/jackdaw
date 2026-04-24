@@ -67,7 +67,7 @@ pub fn operator(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut cancel: Option<Path> = None;
 
     for arg in args {
-        let Some(key) = arg.path.get_ident().map(|i| i.to_string()) else {
+        let Some(key) = arg.path.get_ident().map(std::string::ToString::to_string) else {
             continue;
         };
         match key.as_str() {
@@ -221,9 +221,8 @@ fn as_str_expr(expr: &Expr) -> Option<Expr> {
     match expr {
         Expr::Lit(ExprLit {
             lit: Lit::Str(_), ..
-        }) => Some(expr.clone()),
-
-        Expr::Path(_) => Some(expr.clone()),
+        })
+        | Expr::Path(_) => Some(expr.clone()),
 
         _ => None,
     }

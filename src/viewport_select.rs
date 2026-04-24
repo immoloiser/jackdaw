@@ -44,10 +44,10 @@ pub struct BoxSelectState {
     pub current: Vec2,
 }
 
-/// Tracks whether the user is editing inside a BrushGroup (entered via double-click).
+/// Tracks whether the user is editing inside a `BrushGroup` (entered via double-click).
 #[derive(Resource, Default)]
 pub struct GroupEditState {
-    /// The BrushGroup entity we're currently editing inside of.
+    /// The `BrushGroup` entity we're currently editing inside of.
     pub active_group: Option<Entity>,
 }
 
@@ -163,21 +163,20 @@ pub(crate) fn handle_viewport_click(
         // If we'd select a different entity, but the current selection is also
         // under the cursor (overlapping geometry), keep the current selection.
         // This prevents re-selecting the original after Ctrl+D duplication.
-        if let Some(candidate) = best_entity {
-            if let Some(current_primary) = selection.primary() {
-                if candidate != current_primary {
-                    for (hit_entity, _) in hits {
-                        if find_selectable_ancestor(
-                            *hit_entity,
-                            &scene_entities,
-                            &parents,
-                            &group_edit,
-                            &brush_groups,
-                        ) == Some(current_primary)
-                        {
-                            return;
-                        }
-                    }
+        if let Some(candidate) = best_entity
+            && let Some(current_primary) = selection.primary()
+            && candidate != current_primary
+        {
+            for (hit_entity, _) in hits {
+                if find_selectable_ancestor(
+                    *hit_entity,
+                    &scene_entities,
+                    &parents,
+                    &group_edit,
+                    &brush_groups,
+                ) == Some(current_primary)
+                {
+                    return;
                 }
             }
         }
@@ -314,16 +313,14 @@ fn handle_box_select(
             let mut selected_entities = Vec::new();
             for (entity, global_tf) in &scene_entities {
                 let pos = global_tf.translation();
-                if let Ok(screen_pos) = camera.world_to_viewport(cam_tf, pos) {
-                    if screen_pos.x >= min.x
-                        && screen_pos.x <= max.x
-                        && screen_pos.y >= min.y
-                        && screen_pos.y <= max.y
-                    {
-                        if !selected_entities.contains(&entity) {
-                            selected_entities.push(entity);
-                        }
-                    }
+                if let Ok(screen_pos) = camera.world_to_viewport(cam_tf, pos)
+                    && screen_pos.x >= min.x
+                    && screen_pos.x <= max.x
+                    && screen_pos.y >= min.y
+                    && screen_pos.y <= max.y
+                    && !selected_entities.contains(&entity)
+                {
+                    selected_entities.push(entity);
                 }
             }
 
@@ -415,7 +412,7 @@ fn find_selectable_ancestor(
     }
 }
 
-/// Exit BrushGroup edit mode when Escape is pressed.
+/// Exit `BrushGroup` edit mode when Escape is pressed.
 fn exit_group_on_escape(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut group_edit: ResMut<GroupEditState>,

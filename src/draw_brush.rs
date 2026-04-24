@@ -385,7 +385,7 @@ pub(crate) fn brush_data_from_entity(world: &mut World, entity: Entity) -> Brush
         transform: *world.get::<Transform>(entity).unwrap(),
         name: world
             .get::<Name>(entity)
-            .map(|n| n.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_default(),
         parent_stable_id,
     }
@@ -672,28 +672,28 @@ fn draw_brush_update(
                 let mut best_facing = f32::MIN;
 
                 for (hit_entity, hit_data) in hits {
-                    if let Ok((face_ent, _face_tf)) = brush_faces.get(*hit_entity) {
-                        if let Ok((brush, brush_tf)) = brushes.get(face_ent.brush_entity) {
-                            let face = &brush.faces[face_ent.face_index];
-                            let (_, brush_rot, _) = brush_tf.to_scale_rotation_translation();
-                            let world_normal = (brush_rot * face.plane.normal).normalize();
-                            let camera_facing = (-*ray.direction).dot(world_normal);
-                            if camera_facing <= 0.0 {
-                                continue;
-                            }
+                    if let Ok((face_ent, _face_tf)) = brush_faces.get(*hit_entity)
+                        && let Ok((brush, brush_tf)) = brushes.get(face_ent.brush_entity)
+                    {
+                        let face = &brush.faces[face_ent.face_index];
+                        let (_, brush_rot, _) = brush_tf.to_scale_rotation_translation();
+                        let world_normal = (brush_rot * face.plane.normal).normalize();
+                        let camera_facing = (-*ray.direction).dot(world_normal);
+                        if camera_facing <= 0.0 {
+                            continue;
+                        }
 
-                            let dist = hit_data.distance;
-                            if dist < best_distance - 0.01 {
-                                // Clearly closer, take it.
-                                best_hit = Some((hit_data.point, world_normal));
-                                best_distance = dist;
-                                best_facing = camera_facing;
-                            } else if dist < best_distance + 0.01 && camera_facing > best_facing {
-                                // Within tolerance, prefer more camera-facing.
-                                best_hit = Some((hit_data.point, world_normal));
-                                best_facing = camera_facing;
-                                best_distance = best_distance.min(dist);
-                            }
+                        let dist = hit_data.distance;
+                        if dist < best_distance - 0.01 {
+                            // Clearly closer, take it.
+                            best_hit = Some((hit_data.point, world_normal));
+                            best_distance = dist;
+                            best_facing = camera_facing;
+                        } else if dist < best_distance + 0.01 && camera_facing > best_facing {
+                            // Within tolerance, prefer more camera-facing.
+                            best_hit = Some((hit_data.point, world_normal));
+                            best_facing = camera_facing;
+                            best_distance = best_distance.min(dist);
                         }
                     }
                 }
@@ -805,11 +805,9 @@ fn draw_brush_update(
             if let Some(hit) = ray_plane_intersection(ray, active.plane.origin, active.plane.normal)
             {
                 let mut snapped = snap_to_plane_grid(hit, &active.plane, &snap_settings, false);
-                if shift {
-                    if let Some(&last) = active.polygon_vertices.last() {
-                        snapped = snap_to_diagonal(snapped, last, &active.plane);
-                        snapped = snap_to_plane_grid(snapped, &active.plane, &snap_settings, false);
-                    }
+                if shift && let Some(&last) = active.polygon_vertices.last() {
+                    snapped = snap_to_diagonal(snapped, last, &active.plane);
+                    snapped = snap_to_plane_grid(snapped, &active.plane, &snap_settings, false);
                 }
                 active.polygon_cursor = Some(snapped);
             }
@@ -1092,15 +1090,15 @@ fn draw_brush_preview(
     };
 
     // Highlight the append target brush so the user knows they're in hull mode
-    if let Some(target) = active.append_target {
-        if let Ok((brush, brush_tf)) = brushes.get(target) {
-            let (verts, polys) = compute_brush_geometry(&brush.faces);
-            for polygon in &polys {
-                for i in 0..polygon.len() {
-                    let a = brush_tf.transform_point(verts[polygon[i]]);
-                    let b = brush_tf.transform_point(verts[polygon[(i + 1) % polygon.len()]]);
-                    gizmos.line(a, b, default_style::DRAW_MODE);
-                }
+    if let Some(target) = active.append_target
+        && let Ok((brush, brush_tf)) = brushes.get(target)
+    {
+        let (verts, polys) = compute_brush_geometry(&brush.faces);
+        for polygon in &polys {
+            for i in 0..polygon.len() {
+                let a = brush_tf.transform_point(verts[polygon[i]]);
+                let b = brush_tf.transform_point(verts[polygon[(i + 1) % polygon.len()]]);
+                gizmos.line(a, b, default_style::DRAW_MODE);
             }
         }
     }
@@ -1837,7 +1835,7 @@ fn manage_draw_preview_mesh(
     }
 
     // Build triangle mesh from face polygons
-    let positions: Vec<[f32; 3]> = verts.iter().map(|v| v.to_array()).collect();
+    let positions: Vec<[f32; 3]> = verts.iter().map(Vec3::to_array).collect();
     let mut all_indices: Vec<u32> = Vec::new();
     for polygon in &face_polys {
         if polygon.len() < 3 {
@@ -2063,7 +2061,7 @@ fn footprint_corners(active: &ActiveDraw) -> [Vec3; 4] {
     ]
 }
 
-/// Build 6 world-space cutter planes from the ActiveDraw cuboid.
+/// Build 6 world-space cutter planes from the `ActiveDraw` cuboid.
 fn build_cutter_planes(active: &ActiveDraw) -> Vec<BrushFaceData> {
     let plane = &active.plane;
 
@@ -2108,7 +2106,7 @@ fn build_cutter_planes(active: &ActiveDraw) -> Vec<BrushFaceData> {
         .collect()
 }
 
-/// Build N+2 world-space cutter planes from a polygon prism ActiveDraw.
+/// Build N+2 world-space cutter planes from a polygon prism `ActiveDraw`.
 fn build_cutter_planes_polygon(active: &ActiveDraw) -> Vec<BrushFaceData> {
     let verts = &active.polygon_vertices;
     let normal = active.plane.normal;
@@ -2176,7 +2174,7 @@ fn build_cutter_planes_polygon(active: &ActiveDraw) -> Vec<BrushFaceData> {
     faces
 }
 
-/// If `entity` is a child of a BrushGroup, return (parent_entity, parent_translation).
+/// If `entity` is a child of a `BrushGroup`, return (`parent_entity`, `parent_translation`).
 fn brush_parent_group(world: &World, entity: Entity) -> Option<(Entity, Vec3)> {
     let parent = world.get::<ChildOf>(entity)?.0;
     world.get::<BrushGroup>(parent)?;
@@ -2461,10 +2459,10 @@ impl EditorCommand for SubtractBrushCommand {
         deselect_entities(world, &all_entities);
         for data in &self.fragments {
             let sid = Self::fragment_stable_id(data);
-            if let Some(entity) = entity_by_stable_id(world, sid) {
-                if let Ok(e) = world.get_entity_mut(entity) {
-                    e.despawn();
-                }
+            if let Some(entity) = entity_by_stable_id(world, sid)
+                && let Ok(e) = world.get_entity_mut(entity)
+            {
+                e.despawn();
             }
         }
         // Respawn originals (stable IDs are reassigned from stored data)
@@ -3028,7 +3026,10 @@ pub(crate) fn csg_intersect_selected_impl(world: &mut World) {
         })
         .collect();
 
-    let face_refs: Vec<&[BrushFaceData]> = world_face_sets.iter().map(|v| v.as_slice()).collect();
+    let face_refs: Vec<&[BrushFaceData]> = world_face_sets
+        .iter()
+        .map(std::vec::Vec::as_slice)
+        .collect();
     let Some(intersection_faces) = intersect_brushes(&face_refs) else {
         return;
     };
@@ -3238,10 +3239,10 @@ fn find_hovered_face_on_brush(
     let hits = ray_cast.cast_ray(ray, &settings);
 
     for (hit_entity, _) in hits {
-        if let Ok(face_ent) = brush_faces.get(*hit_entity) {
-            if face_ent.brush_entity == brush_entity {
-                return Some(face_ent.face_index);
-            }
+        if let Ok(face_ent) = brush_faces.get(*hit_entity)
+            && face_ent.brush_entity == brush_entity
+        {
+            return Some(face_ent.face_index);
         }
     }
     None

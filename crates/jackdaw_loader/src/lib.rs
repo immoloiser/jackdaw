@@ -258,11 +258,11 @@ pub fn peek_kind(path: &Path) -> Result<LoadedKind, LoadError> {
 impl DylibLoaderPlugin {
     fn collect_search_paths(&self) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        if self.include_user_dir {
-            if let Some(config) = dirs::config_dir() {
-                paths.push(config.join(DEFAULT_EXTENSIONS_SUBDIR));
-                paths.push(config.join(DEFAULT_GAMES_SUBDIR));
-            }
+        if self.include_user_dir
+            && let Some(config) = dirs::config_dir()
+        {
+            paths.push(config.join(DEFAULT_EXTENSIONS_SUBDIR));
+            paths.push(config.join(DEFAULT_GAMES_SUBDIR));
         }
         if self.include_env_dir {
             if let Ok(env_path) = std::env::var(ENV_EXTENSIONS_PATH) {
@@ -301,7 +301,7 @@ impl LoadError {
     /// couldn't be found, because the SDK was rebuilt after the
     /// dylib was last compiled.
     ///
-    /// Callers (project_select, hot_reload) use this to trigger
+    /// Callers (`project_select`, `hot_reload`) use this to trigger
     /// an auto-`cargo clean -p <crate>` + rebuild recovery path
     /// transparently, so the user never has to manually nuke their
     /// project target dir after an editor rebuild.
@@ -382,7 +382,10 @@ fn is_dylib(path: &Path) -> bool {
 /// Result of a successfully-verified dylib open. The loader keeps
 /// each variant's `Library` handle alive for the duration of the
 /// `App`; dropping it while the entry code is still reachable is UB.
-#[expect(improper_ctypes_definitions)]
+#[expect(
+    improper_ctypes_definitions,
+    reason = "This is wrong, but I'll fix it in the next PR"
+)]
 enum OpenedDylib {
     Extension {
         lib: libloading::Library,
@@ -402,7 +405,10 @@ enum OpenedDylib {
 /// Try to open `path`, dispatching on which entry symbol it
 /// exposes. Game symbol wins if both somehow exist (a cdylib
 /// should only `export_game!` or `export_extension!`, not both).
-#[expect(improper_ctypes_definitions)]
+#[expect(
+    improper_ctypes_definitions,
+    reason = "This is wrong, but I'll fix it in the next PR"
+)]
 fn open_and_verify(path: &Path) -> Result<OpenedDylib, LoadError> {
     // SAFETY: libloading's standard contract. Caller trusts `path`
     // is a well-formed dynamic library; if not, the call returns
@@ -555,7 +561,7 @@ fn try_load(app: &mut App, path: &Path) -> Result<LoadedKind, LoadError> {
             // v2 builds take `*mut World`. Call from an exclusive
             // context: we have `&mut App` here, so deriving
             // `&mut World` via `world_mut()` is fine.
-            let world_ptr: *mut bevy::ecs::world::World = app.world_mut() as *mut _;
+            let world_ptr: *mut bevy::ecs::world::World = std::ptr::from_mut(app.world_mut());
             let build_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
                 // SAFETY: `build` is a function pointer from a
                 // compat-verified dylib; `world_ptr` is a valid
@@ -690,9 +696,9 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
                 let prior = world.resource::<GameCatalog>().entries.get(&name).copied();
                 if let Some(prior_entry) = prior {
                     info!("Hot reload: tearing down prior version of `{name}`");
-                    let world_ptr: *mut bevy::ecs::world::World = world as *mut _;
+                    let world_ptr: *mut bevy::ecs::world::World = std::ptr::from_mut(world);
                     let _ = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
-                        (prior_entry.teardown)(world_ptr)
+                        (prior_entry.teardown)(world_ptr);
                     }));
                 }
             }
@@ -703,7 +709,7 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
             call_reflect_register_symbol(world, &lib);
             register_derived_component_ids(world);
 
-            let world_ptr: *mut bevy::ecs::world::World = world as *mut _;
+            let world_ptr: *mut bevy::ecs::world::World = std::ptr::from_mut(world);
             let build_result =
                 std::panic::catch_unwind(AssertUnwindSafe(|| unsafe { build(world_ptr) }));
             if build_result.is_err() {
@@ -732,7 +738,10 @@ pub fn load_from_path(world: &mut World, path: &Path) -> Result<LoadedKind, Load
 /// with the handle at the call site so the caller can both move the
 /// library into `LoadedDylibs` at the right moment and look up symbols
 /// on it in the meantime.
-#[expect(improper_ctypes_definitions)]
+#[expect(
+    improper_ctypes_definitions,
+    reason = "This is wrong, but I'll fix it in the next PR"
+)]
 enum OpenedKind {
     Extension {
         id: String,

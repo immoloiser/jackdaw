@@ -44,11 +44,11 @@ impl Plugin for PhysicsToolPlugin {
     }
 }
 
-/// Track the previous EditMode to detect transitions into/out of Physics.
+/// Track the previous `EditMode` to detect transitions into/out of Physics.
 #[derive(Resource, Default)]
 struct PreviousEditMode(EditMode);
 
-/// Detect when EditMode changes to/from Physics and run entry/exit logic.
+/// Detect when `EditMode` changes to/from Physics and run entry/exit logic.
 fn on_edit_mode_transition(world: &mut World) {
     let edit_mode = *world.resource::<EditMode>();
     let prev = world.get_resource_or_init::<PreviousEditMode>().0;
@@ -268,10 +268,10 @@ fn physics_tool_drag(
             // Capture starting positions of ALL selected RigidBody entities
             let mut start_positions = bevy::platform::collections::HashMap::default();
             for &sel_entity in &selection.entities {
-                if rb_check.contains(sel_entity) {
-                    if let Ok(sel_tf) = transforms.get(sel_entity) {
-                        start_positions.insert(sel_entity, sel_tf.translation);
-                    }
+                if rb_check.contains(sel_entity)
+                    && let Ok(sel_tf) = transforms.get(sel_entity)
+                {
+                    start_positions.insert(sel_entity, sel_tf.translation);
                 }
             }
 

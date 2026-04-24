@@ -20,7 +20,7 @@ fn main() -> AppExit {
     // installing Ctrl+C handler as one was already installed"),
     // and we can't do anything about it from here.
     let _ = ctrlc::set_handler(|| {
-        eprintln!("jackdaw: received Ctrl+C, exiting");
+        error!("jackdaw: received Ctrl+C, exiting");
         std::process::exit(130);
     });
 
@@ -101,5 +101,5 @@ fn error_handler(error: BevyError, ctx: ErrorContext) {
         bevy::ecs::error::debug(error, ctx);
         return;
     }
-    bevy::ecs::error::error(error, ctx)
+    bevy::ecs::error::error(error, ctx);
 }

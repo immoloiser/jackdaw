@@ -78,7 +78,7 @@ pub fn populate_workspace_tabs(
             let is_empty = world
                 .entity(entity)
                 .get::<Children>()
-                .is_none_or(|c| c.is_empty());
+                .is_none_or(RelationshipTarget::is_empty);
             if is_empty || ids_changed {
                 strips.push(entity);
             }
@@ -343,10 +343,10 @@ pub fn handle_add_workspace_clicks(
         let new_name = format!("Workspace {next_index}");
 
         let current_active = registry.active.clone();
-        if let Some(active_id) = current_active.as_ref() {
-            if let Some(ws) = registry.get_mut(active_id) {
-                ws.tree = tree.clone();
-            }
+        if let Some(active_id) = current_active.as_ref()
+            && let Some(ws) = registry.get_mut(active_id)
+        {
+            ws.tree = tree.clone();
         }
 
         registry.workspaces.push(WorkspaceDescriptor {
@@ -394,10 +394,8 @@ pub fn on_workspace_close_click(
     let target = close_btn.workspace_id.clone();
     let was_active = registry.active.as_deref() == Some(&target);
 
-    if was_active {
-        if let Some(ws) = registry.get_mut(&target) {
-            ws.tree = tree.clone();
-        }
+    if was_active && let Some(ws) = registry.get_mut(&target) {
+        ws.tree = tree.clone();
     }
 
     registry.workspaces.retain(|w| w.id != target);
@@ -499,7 +497,7 @@ fn start_workspace_rename(
     }
 }
 
-/// Auto-focus a freshly-spawned workspace rename text_edit. Walks down
+/// Auto-focus a freshly-spawned workspace rename `text_edit`. Walks down
 /// to the inner `EditorTextEdit` (same nesting as inline renames in
 /// hierarchy.rs) and sets it as the focused entity.
 pub fn auto_focus_workspace_rename(
@@ -527,7 +525,7 @@ pub fn auto_focus_workspace_rename(
 }
 
 /// Commit (Enter / blur) finishes the rename: writes the new name into
-/// the workspace, despawns the text_edit, and restores the label.
+/// the workspace, despawns the `text_edit`, and restores the label.
 pub fn handle_workspace_rename_commit(
     event: On<TextEditCommitEvent>,
     rename_inputs: Query<(Entity, &WorkspaceRenameInput)>,
@@ -589,10 +587,10 @@ pub fn on_workspace_changed_swap_tree(
 ) {
     let event = trigger.event();
 
-    if let Some(old_id) = &event.old {
-        if let Some(ws) = registry.get_mut(old_id) {
-            ws.tree = tree.clone();
-        }
+    if let Some(old_id) = &event.old
+        && let Some(ws) = registry.get_mut(old_id)
+    {
+        ws.tree = tree.clone();
     }
 
     let target_tree = match registry.get(&event.new) {

@@ -74,7 +74,11 @@ pub(crate) fn on_add_component_button_click(
     // Collect existing component TypeIds on the entity
     let existing_types: HashSet<TypeId> = archetype
         .iter_components()
-        .filter_map(|cid| components.get_info(cid).and_then(|info| info.type_id()))
+        .filter_map(|cid| {
+            components
+                .get_info(cid)
+                .and_then(bevy::ecs::component::ComponentInfo::type_id)
+        })
         .collect();
 
     let registry = type_registry.read();
@@ -367,7 +371,7 @@ pub(crate) fn on_add_component_button_click(
                                     }
                                 }
                             }
-                            commands.run_system_cached_with(remove_pickers, (source_entity, cmd))
+                            commands.run_system_cached_with(remove_pickers, (source_entity, cmd));
                         }
                     }),
                     observe(

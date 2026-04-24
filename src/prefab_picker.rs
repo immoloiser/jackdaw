@@ -28,8 +28,6 @@ struct PrefabPickerSearch;
 
 #[derive(Component)]
 struct PrefabPickerEntry {
-    #[expect(dead_code)]
-    path: String,
     display_name: String,
 }
 
@@ -52,7 +50,7 @@ pub fn open_prefab_picker(world: &mut World) {
     // Scan for .jsn files
     let assets_dir = world
         .get_resource::<crate::project::ProjectRoot>()
-        .map(|p| p.assets_dir())
+        .map(super::project::ProjectRoot::assets_dir)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("assets"));
 
     let mut prefabs: Vec<(String, String)> = Vec::new(); // (path, display_name)
@@ -150,7 +148,6 @@ pub fn open_prefab_picker(world: &mut World) {
         let entry_id = commands
             .spawn((
                 PrefabPickerEntry {
-                    path: entry_path.clone(),
                     display_name: entry_display.clone(),
                 },
                 Node {
@@ -257,7 +254,7 @@ fn scan_jsn_files(dir: &PathBuf, _assets_root: &PathBuf, results: &mut Vec<(Stri
                     v.get("metadata")?
                         .get("name")?
                         .as_str()
-                        .map(|s| s.to_string())
+                        .map(std::string::ToString::to_string)
                 })
                 .filter(|name| !name.is_empty() && name != "Untitled")
                 .unwrap_or_else(|| {

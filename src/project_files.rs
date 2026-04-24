@@ -114,7 +114,7 @@ fn check_project_watcher(
     }
 }
 
-/// Rebuild the root-level tree when needs_refresh is set.
+/// Rebuild the root-level tree when `needs_refresh` is set.
 fn refresh_project_tree(
     mut state: ResMut<ProjectFilesState>,
     tree_query: Query<(Entity, Option<&Children>), With<ProjectFilesTree>>,
@@ -243,7 +243,7 @@ fn handle_directory_expand(
     }
 }
 
-/// Scan a directory and return (path, is_directory) entries.
+/// Scan a directory and return (path, `is_directory`) entries.
 fn scan_directory(dir: &Path) -> Vec<(PathBuf, bool)> {
     let Ok(read_dir) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -407,14 +407,14 @@ fn spawn_file_tree_row(
                 // Toggle children visibility
                 if let Ok(children) = children_query.get(node_for_click) {
                     for child in children.iter() {
-                        if children_containers.get(child).is_ok() {
-                            if let Ok(mut node) = node_query.get_mut(child) {
-                                node.display = if is_expanded {
-                                    Display::Flex
-                                } else {
-                                    Display::None
-                                };
-                            }
+                        if children_containers.get(child).is_ok()
+                            && let Ok(mut node) = node_query.get_mut(child)
+                        {
+                            node.display = if is_expanded {
+                                Display::Flex
+                            } else {
+                                Display::None
+                            };
                         }
                     }
                 }
@@ -425,14 +425,14 @@ fn spawn_file_tree_row(
                     for cc in content_children.iter() {
                         if let Ok(content_kids) = children_query.get(cc) {
                             for kid in content_kids.iter() {
-                                if toggle_markers.get(kid).is_ok() {
-                                    if let Ok(mut text) = text_query.get_mut(kid) {
-                                        text.0 = String::from(if is_expanded {
-                                            Icon::ChevronDown.unicode()
-                                        } else {
-                                            Icon::ChevronRight.unicode()
-                                        });
-                                    }
+                                if toggle_markers.get(kid).is_ok()
+                                    && let Ok(mut text) = text_query.get_mut(kid)
+                                {
+                                    text.0 = String::from(if is_expanded {
+                                        Icon::ChevronDown.unicode()
+                                    } else {
+                                        Icon::ChevronRight.unicode()
+                                    });
                                 }
                             }
                         }

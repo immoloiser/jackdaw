@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::prelude::*;
-use bevy::reflect::TypeRegistry;
+use bevy::reflect::{TypeRegistry, UnnamedField};
+use bevy::{prelude::*, reflect::NamedField};
 
 use crate::format::{JsnAssets, JsnEntity, JsnMetadata, JsnScene};
 
@@ -223,12 +223,11 @@ impl SceneJsnAst {
         registry: &TypeRegistry,
     ) {
         let registration = registry.get_with_type_path(type_path);
-        if let Some(node) = self.node_for_entity_mut(entity) {
-            if let Some(component) = node.components.get_mut(type_path) {
-                if let Some(registration) = registration {
-                    typed_json_path_set(component, field_path, value, registration, registry);
-                }
-            }
+        if let Some(node) = self.node_for_entity_mut(entity)
+            && let Some(component) = node.components.get_mut(type_path)
+            && let Some(registration) = registration
+        {
+            typed_json_path_set(component, field_path, value, registration, registry);
         }
         self.mark_dirty(entity);
     }
@@ -283,7 +282,7 @@ fn enum_variant_from_json_mut(
 }
 
 /// Find a field on the current variant by name (or index for tuple variants)
-/// and return its TypeRegistration. Used to advance `current_reg` after an
+/// and return its [`TypeRegistration`]. Used to advance `current_reg` after an
 /// enum has been unwrapped during path navigation.
 fn variant_field_type_registration<'a>(
     enum_info: &EnumInfo,
@@ -293,27 +292,27 @@ fn variant_field_type_registration<'a>(
 ) -> Option<&'a TypeRegistration> {
     let variant = enum_info.variant(variant_name)?;
     let field_type_id = match variant {
-        VariantInfo::Struct(s) => s.field(field_name).map(|f| f.type_id())?,
+        VariantInfo::Struct(s) => s.field(field_name).map(NamedField::type_id)?,
         VariantInfo::Tuple(t) => {
             let idx: usize = field_name.parse().ok()?;
-            t.field_at(idx).map(|f| f.type_id())?
+            t.field_at(idx).map(UnnamedField::type_id)?
         }
         VariantInfo::Unit(_) => return None,
     };
     registry.get(field_type_id)
 }
 
-/// Get the TypeRegistration for a field by name, advancing through the type tree.
+/// Get the [`TypeRegistration`] for a field by name, advancing through the type tree.
 fn field_type_registration<'a>(
     type_info: &TypeInfo,
     field_name: &str,
     registry: &'a TypeRegistry,
 ) -> Option<&'a TypeRegistration> {
     let field_type_id = match type_info {
-        TypeInfo::Struct(s) => s.field(field_name).map(|f| f.type_id()),
+        TypeInfo::Struct(s) => s.field(field_name).map(NamedField::type_id),
         TypeInfo::TupleStruct(ts) => {
             let idx = field_name.parse::<usize>().ok()?;
-            ts.field_at(idx).map(|f| f.type_id())
+            ts.field_at(idx).map(UnnamedField::type_id)
         }
         TypeInfo::List(l) => Some(l.item_ty().id()),
         _ => None,
@@ -375,10 +374,10 @@ fn typed_json_path_get<'a>(
             current = current.get(idx)?;
             // Advance type info to list element
             let list_info = current_reg.type_info();
-            if let TypeInfo::List(l) = list_info {
-                if let Some(elem_reg) = registry.get(l.item_ty().id()) {
-                    current_reg = elem_reg;
-                }
+            if let TypeInfo::List(l) = list_info
+                && let Some(elem_reg) = registry.get(l.item_ty().id())
+            {
+                current_reg = elem_reg;
             }
         } else {
             // Simple field navigation
@@ -440,9 +439,8 @@ fn typed_json_path_set(
         // like `"radius"` address the field on the current variant rather
         // than inserting a sibling of the variant tag.
         if let TypeInfo::Enum(enum_info) = type_info {
-            let (variant_name, inner) = match enum_variant_from_json_mut(current) {
-                Some(v) => v,
-                None => return,
+            let Some((variant_name, inner)) = enum_variant_from_json_mut(current) else {
+                return;
             };
             let Some(next_reg) =
                 variant_field_type_registration(enum_info, &variant_name, segment, registry)
@@ -495,10 +493,10 @@ fn typed_json_path_set(
                 current_reg = key_reg;
             }
             if is_last {
-                if let Some(arr) = arr_val.as_array_mut() {
-                    if idx < arr.len() {
-                        arr[idx] = value;
-                    }
+                if let Some(arr) = arr_val.as_array_mut()
+                    && idx < arr.len()
+                {
+                    arr[idx] = value;
                 }
                 return;
             }
@@ -507,10 +505,10 @@ fn typed_json_path_set(
                 None => return,
             };
             let list_info = current_reg.type_info();
-            if let TypeInfo::List(l) = list_info {
-                if let Some(elem_reg) = registry.get(l.item_ty().id()) {
-                    current_reg = elem_reg;
-                }
+            if let TypeInfo::List(l) = list_info
+                && let Some(elem_reg) = registry.get(l.item_ty().id())
+            {
+                current_reg = elem_reg;
             }
         } else {
             if is_last {

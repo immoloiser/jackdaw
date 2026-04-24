@@ -18,14 +18,12 @@ fn resolve_material_label(
     if let Some(path) = mat_handle.path() {
         return path.to_string();
     }
-    if let Some(mat) = materials.get(mat_handle) {
-        if let Some(ref tex) = mat.base_color_texture {
-            if let Some(path) = tex.path() {
-                if let Some(filename) = path.path().file_name() {
-                    return filename.to_string_lossy().to_string();
-                }
-            }
-        }
+    if let Some(mat) = materials.get(mat_handle)
+        && let Some(ref tex) = mat.base_color_texture
+        && let Some(path) = tex.path()
+        && let Some(filename) = path.path().file_name()
+    {
+        return filename.to_string_lossy().to_string();
     }
     format!("Material {:?}", mat_handle.id())
 }
@@ -146,21 +144,20 @@ fn spawn_material_summary(
             .id();
 
         // Thumbnail
-        if !is_default {
-            if let Some(mat) = materials.get(mat_handle) {
-                if let Some(ref tex) = mat.base_color_texture {
-                    commands.spawn((
-                        ImageNode::new(tex.clone()),
-                        Node {
-                            width: Val::Px(32.0),
-                            height: Val::Px(32.0),
-                            flex_shrink: 0.0,
-                            ..Default::default()
-                        },
-                        ChildOf(row),
-                    ));
-                }
-            }
+        if !is_default
+            && let Some(mat) = materials.get(mat_handle)
+            && let Some(ref tex) = mat.base_color_texture
+        {
+            commands.spawn((
+                ImageNode::new(tex.clone()),
+                Node {
+                    width: Val::Px(32.0),
+                    height: Val::Px(32.0),
+                    flex_shrink: 0.0,
+                    ..Default::default()
+                },
+                ChildOf(row),
+            ));
         }
 
         // Material name
@@ -381,19 +378,19 @@ pub(crate) fn update_brush_face_properties(
             .id();
 
         // Show base_color thumbnail if available
-        if let Some(mat) = materials.get(&face.material) {
-            if let Some(ref tex) = mat.base_color_texture {
-                commands.spawn((
-                    ImageNode::new(tex.clone()),
-                    Node {
-                        width: Val::Px(32.0),
-                        height: Val::Px(32.0),
-                        flex_shrink: 0.0,
-                        ..Default::default()
-                    },
-                    ChildOf(mat_row),
-                ));
-            }
+        if let Some(mat) = materials.get(&face.material)
+            && let Some(ref tex) = mat.base_color_texture
+        {
+            commands.spawn((
+                ImageNode::new(tex.clone()),
+                Node {
+                    width: Val::Px(32.0),
+                    height: Val::Px(32.0),
+                    flex_shrink: 0.0,
+                    ..Default::default()
+                },
+                ChildOf(mat_row),
+            ));
         }
 
         commands.spawn((
@@ -695,7 +692,7 @@ fn spawn_brush_face_field_row(
     ));
 }
 
-/// Handle TextEditCommitEvent for brush face field bindings.
+/// Handle `TextEditCommitEvent` for brush face field bindings.
 pub(crate) fn on_brush_face_text_commit(
     event: On<TextEditCommitEvent>,
     bindings: Query<&BrushFaceFieldBinding>,

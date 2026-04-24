@@ -123,7 +123,7 @@ struct MaterialBrowserFolderTask(Task<Option<rfd::FileHandle>>);
 #[derive(Component)]
 struct PreviewAreaContainer;
 
-/// The ImageNode displaying the render-to-texture preview.
+/// The `ImageNode` displaying the render-to-texture preview.
 #[derive(Component)]
 struct PreviewAreaImage;
 
@@ -284,9 +284,8 @@ fn detect_and_create_materials(
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
 ) -> Vec<(String, Handle<StandardMaterial>)> {
-    let re = match pbr_filename_regex() {
-        Some(r) => r,
-        None => return Vec::new(),
+    let Some(re) = pbr_filename_regex() else {
+        return Vec::new();
     };
 
     let mut groups: HashMap<String, Vec<(String, String)>> = HashMap::new();
@@ -443,7 +442,7 @@ fn scan_dir_recursive(
 fn scan_material_definitions(world: &mut World) {
     let assets_dir = world
         .get_resource::<crate::project::ProjectRoot>()
-        .map(|p| p.assets_dir())
+        .map(super::project::ProjectRoot::assets_dir)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("assets"));
     world.resource_mut::<MaterialBrowserState>().scan_directory = assets_dir.clone();
 
@@ -517,7 +516,7 @@ fn rescan_material_definitions(world: &mut World) {
 
     let assets_dir = world
         .get_resource::<crate::project::ProjectRoot>()
-        .map(|p| p.assets_dir())
+        .map(super::project::ProjectRoot::assets_dir)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join("assets"));
 
     {
@@ -590,7 +589,7 @@ fn save_catalog_if_dirty(world: &mut World) {
     // Re-serialize all registry materials so in-memory edits persist.
     let assets_dir = world
         .get_resource::<crate::project::ProjectRoot>()
-        .map(|p| p.assets_dir())
+        .map(super::project::ProjectRoot::assets_dir)
         .unwrap_or_default();
     let entries: Vec<(String, UntypedHandle)> = world
         .resource::<MaterialRegistry>()
@@ -645,30 +644,30 @@ fn handle_apply_material(
     last_material.material = Some(event.material.clone());
 
     if *edit_mode == EditMode::BrushEdit(BrushEditMode::Face) && !brush_selection.faces.is_empty() {
-        if let Some(entity) = brush_selection.entity {
-            if let Ok(mut brush) = brushes.get_mut(entity) {
-                let old = brush.clone();
-                for &face_idx in &brush_selection.faces {
-                    if face_idx < brush.faces.len() {
-                        brush.faces[face_idx].material = event.material.clone();
-                    }
+        if let Some(entity) = brush_selection.entity
+            && let Ok(mut brush) = brushes.get_mut(entity)
+        {
+            let old = brush.clone();
+            for &face_idx in &brush_selection.faces {
+                if face_idx < brush.faces.len() {
+                    brush.faces[face_idx].material = event.material.clone();
                 }
-                let new_brush = brush.clone();
-                let cmd = SetBrush {
-                    entity,
-                    old,
-                    new: new_brush.clone(),
-                    label: "Apply material".into(),
-                };
-                history.push_executed(Box::new(cmd));
-                // Deferred AST sync (SetBrush was pushed without execute)
-                commands.queue(move |world: &mut World| {
-                    crate::brush::sync_brush_to_ast(world, entity, &new_brush);
-                });
-                commands
-                    .entity(entity)
-                    .insert(crate::inspector::InspectorDirty);
             }
+            let new_brush = brush.clone();
+            let cmd = SetBrush {
+                entity,
+                old,
+                new: new_brush.clone(),
+                label: "Apply material".into(),
+            };
+            history.push_executed(Box::new(cmd));
+            // Deferred AST sync (SetBrush was pushed without execute)
+            commands.queue(move |world: &mut World| {
+                crate::brush::sync_brush_to_ast(world, entity, &new_brush);
+            });
+            commands
+                .entity(entity)
+                .insert(crate::inspector::InspectorDirty);
         }
     } else {
         // Collect targets, expanding BrushGroups into their child brushes
@@ -762,10 +761,10 @@ fn update_preview_area(
             if dragging_query.contains(child) {
                 return;
             }
-            if let Ok(grandchildren) = all_children_query.get(child) {
-                if grandchildren.iter().any(|gc| dragging_query.contains(gc)) {
-                    return;
-                }
+            if let Ok(grandchildren) = all_children_query.get(child)
+                && grandchildren.iter().any(|gc| dragging_query.contains(gc))
+            {
+                return;
             }
         }
     }
@@ -1145,7 +1144,7 @@ fn update_preview_area(
     );
 }
 
-/// Handle TextEditCommitEvent for material parameter inputs.
+/// Handle `TextEditCommitEvent` for material parameter inputs.
 fn on_material_param_commit(
     event: On<TextEditCommitEvent>,
     param_query: Query<&MaterialParamInput>,
@@ -1192,10 +1191,10 @@ fn on_material_param_commit(
         .iter()
         .find(|e| e.handle == *active_handle)
         .map(|e| format!("@{}", e.name));
-    if let Some(name) = catalog_name {
-        if catalog.contains_name(&name) {
-            catalog.dirty = true;
-        }
+    if let Some(name) = catalog_name
+        && catalog.contains_name(&name)
+    {
+        catalog.dirty = true;
     }
 }
 

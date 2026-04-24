@@ -624,7 +624,7 @@ fn on_clip_selector_change(
     });
 }
 
-/// Observer: when the inline clip-name text_edit commits, route the
+/// Observer: when the inline clip-name `text_edit` commits, route the
 /// rename through `SetJsnField` on the `Name` component so it
 /// participates in undo and round-trips through JSN.
 fn on_clip_name_commit(
@@ -1013,7 +1013,7 @@ impl DespawnKeyframeCmd {
     /// component types, so the caller can fall through to a
     /// generic despawn.
     fn try_from_entity(world: &World, entity: Entity) -> Option<Self> {
-        let track = world.get::<ChildOf>(entity).map(|c| c.parent())?;
+        let track = world.get::<ChildOf>(entity).map(ChildOf::parent)?;
         if let Some(kf) = world.get::<jackdaw_animation::Vec3Keyframe>(entity) {
             return Some(Self::Vec3 {
                 keyframe: entity,
@@ -1375,7 +1375,7 @@ fn handle_keyframe_copy(world: &mut World) {
 
     let mut entries: Vec<(f32, jackdaw_animation::KeyframeClipboardEntry)> = Vec::new();
     for &entity in &selected {
-        let Some(track_entity) = world.get::<ChildOf>(entity).map(|c| c.parent()) else {
+        let Some(track_entity) = world.get::<ChildOf>(entity).map(ChildOf::parent) else {
             continue;
         };
         let Some(track) = world.get::<jackdaw_animation::AnimationTrack>(track_entity) else {
@@ -1726,7 +1726,7 @@ fn register_animation_entities_in_ast(
 ///
 /// Lives in the main crate rather than `jackdaw_animation` because it
 /// needs to read `jackdaw_jsn::GltfSource`, and we'd rather not wire a
-/// jackdaw_jsn dep into the animation crate.
+/// `jackdaw_jsn` dep into the animation crate.
 ///
 /// [`GltfSource`]: jackdaw_jsn::GltfSource
 fn discover_gltf_clips(
@@ -2031,9 +2031,8 @@ fn handle_menu_action(event: On<MenuAction>, mut commands: Commands) {
                         _ => return,
                     }
                 } else {
-                    let primary = match selection.primary() {
-                        Some(e) => e,
-                        None => return,
+                    let Some(primary) = selection.primary() else {
+                        return;
                     };
                     let face_index = if brush_selection.last_face_entity == Some(primary) {
                         brush_selection.last_face_index
@@ -2342,10 +2341,10 @@ fn cleanup_editor(world: &mut World) {
         menu_state.open_menu = None;
         menu_state.dropdown_entity.take()
     };
-    if let Some(dropdown) = dropdown_to_despawn {
-        if let Ok(ec) = world.get_entity_mut(dropdown) {
-            ec.despawn();
-        }
+    if let Some(dropdown) = dropdown_to_despawn
+        && let Ok(ec) = world.get_entity_mut(dropdown)
+    {
+        ec.despawn();
     }
 }
 
@@ -2593,21 +2592,21 @@ fn auto_save_layout_on_change(
     }
 
     // Debounce: wait 0.5s of no changes before writing.
-    if let Some(since) = state.pending_since {
-        if now - since >= 0.5 {
-            state.pending_since = None;
-            commands.queue(|world: &mut World| {
-                scene_io::save_layout_to_project(world);
-            });
-        }
+    if let Some(since) = state.pending_since
+        && now - since >= 0.5
+    {
+        state.pending_since = None;
+        commands.queue(|world: &mut World| {
+            scene_io::save_layout_to_project(world);
+        });
     }
 }
 
-/// Build the final DockTree (saved or default-split) BEFORE the
+/// Build the final `DockTree` (saved or default-split) BEFORE the
 /// reconciler materializes any content. This way each window's `build_fn`
 /// runs exactly once into its final home with no rebuild churn, which
 /// would otherwise despawn freshly-spawned content while its deferred
-/// init systems (project_files refresh, material_browser scan, etc.)
+/// init systems (`project_files` refresh, `material_browser` scan, etc.)
 /// still hold pointers to it.
 ///
 /// Supports three save formats (in priority order):
@@ -2624,25 +2623,24 @@ fn init_layout(world: &mut World) {
         // Try the per-workspace format first.
         if let Ok(persist) =
             serde_json::from_value::<jackdaw_panels::WorkspacesPersist>(json.clone())
+            && !persist.workspaces.is_empty()
         {
-            if !persist.workspaces.is_empty() {
-                let active_tree = {
-                    let mut registry = world.resource_mut::<jackdaw_panels::WorkspaceRegistry>();
-                    persist.apply_to_registry(&mut registry);
-                    registry.active_workspace().map(|w| w.tree.clone())
-                };
-                if let Some(tree) = active_tree {
-                    world.insert_resource(tree);
-                    loaded_tree = true;
-                }
-            }
-        }
-        // Fall back to the older bare-DockTree format.
-        if !loaded_tree {
-            if let Ok(tree) = serde_json::from_value::<jackdaw_panels::tree::DockTree>(json) {
+            let active_tree = {
+                let mut registry = world.resource_mut::<jackdaw_panels::WorkspaceRegistry>();
+                persist.apply_to_registry(&mut registry);
+                registry.active_workspace().map(|w| w.tree.clone())
+            };
+            if let Some(tree) = active_tree {
                 world.insert_resource(tree);
                 loaded_tree = true;
             }
+        }
+        // Fall back to the older bare-DockTree format.
+        if !loaded_tree
+            && let Ok(tree) = serde_json::from_value::<jackdaw_panels::tree::DockTree>(json)
+        {
+            world.insert_resource(tree);
+            loaded_tree = true;
         }
     }
 
@@ -2757,9 +2755,8 @@ fn sync_active_workspace_from_live_tree(world: &mut World) {
 fn apply_default_splits(world: &mut World) {
     use jackdaw_panels::tree::{DockNode, DockTree, Edge};
 
-    let left_root = match world.resource::<DockTree>().anchor("left") {
-        Some(id) => id,
-        None => return,
+    let Some(left_root) = world.resource::<DockTree>().anchor("left") else {
+        return;
     };
     let already_split = !matches!(
         world.resource::<DockTree>().get(left_root),
@@ -2781,10 +2778,9 @@ fn apply_default_splits(world: &mut World) {
     let mut tree = world.resource_mut::<DockTree>();
     tree.remove_window("jackdaw.project_files");
     if let Some(new_leaf) = tree.split(left_root, Edge::Bottom, "jackdaw.project_files".to_string())
+        && let Some(split_id) = tree.parent_of(new_leaf)
     {
-        if let Some(split_id) = tree.parent_of(new_leaf) {
-            tree.set_fraction(split_id, 0.75);
-        }
+        tree.set_fraction(split_id, 0.75);
     }
 }
 

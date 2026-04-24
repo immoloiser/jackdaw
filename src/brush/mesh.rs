@@ -109,10 +109,10 @@ pub fn regenerate_brush_meshes(
         // Despawn all Mesh3d children from previous regen cycles.
         if let Some(children) = children {
             for child in children.iter() {
-                if mesh3d_query.get(child).is_ok() {
-                    if let Ok(mut ec) = commands.get_entity(child) {
-                        ec.despawn();
-                    }
+                if mesh3d_query.get(child).is_ok()
+                    && let Ok(mut ec) = commands.get_entity(child)
+                {
+                    ec.despawn();
                 }
             }
         }
@@ -230,10 +230,10 @@ pub(super) fn sync_brush_preview(
         }
     }
 
-    if let Some(entity) = preview_entity {
-        if existing.get(entity).is_err() {
-            commands.entity(entity).insert(BrushPreview);
-        }
+    if let Some(entity) = preview_entity
+        && existing.get(entity).is_err()
+    {
+        commands.entity(entity).insert(BrushPreview);
     }
 }
 

@@ -68,7 +68,7 @@ pub fn write_enabled_list(enabled: &[String]) {
 /// trusted exactly as written.
 pub fn resolve_enabled_list(world: &World) -> Vec<String> {
     let catalog = world.resource::<ExtensionCatalog>();
-    let available: Vec<String> = catalog.iter().map(|s| s.to_string()).collect();
+    let available: Vec<String> = catalog.iter().map(ToString::to_string).collect();
     let builtins: HashMap<String, String> = catalog
         .iter_with_content()
         .filter(|(.., kind)| *kind == ExtensionKind::Builtin)

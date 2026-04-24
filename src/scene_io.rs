@@ -382,33 +382,31 @@ impl<'a> ReflectSerializerProcessor for JsnSerializerProcessor<'a> {
         let type_id = value.reflect_type_info().type_id();
 
         // Non-finite floats: JSON has no infinity/NaN, serialize as descriptive strings
-        if type_id == TypeId::of::<f32>() {
-            if let Some(&v) = value.as_any().downcast_ref::<f32>() {
-                if !v.is_finite() {
-                    let s = if v == f32::INFINITY {
-                        "inf"
-                    } else if v == f32::NEG_INFINITY {
-                        "-inf"
-                    } else {
-                        "NaN"
-                    };
-                    return Ok(Ok(serializer.serialize_str(s)?));
-                }
-            }
+        if type_id == TypeId::of::<f32>()
+            && let Some(&v) = value.as_any().downcast_ref::<f32>()
+            && !v.is_finite()
+        {
+            let s = if v == f32::INFINITY {
+                "inf"
+            } else if v == f32::NEG_INFINITY {
+                "-inf"
+            } else {
+                "NaN"
+            };
+            return Ok(Ok(serializer.serialize_str(s)?));
         }
-        if type_id == TypeId::of::<f64>() {
-            if let Some(&v) = value.as_any().downcast_ref::<f64>() {
-                if !v.is_finite() {
-                    let s = if v == f64::INFINITY {
-                        "inf"
-                    } else if v == f64::NEG_INFINITY {
-                        "-inf"
-                    } else {
-                        "NaN"
-                    };
-                    return Ok(Ok(serializer.serialize_str(s)?));
-                }
-            }
+        if type_id == TypeId::of::<f64>()
+            && let Some(&v) = value.as_any().downcast_ref::<f64>()
+            && !v.is_finite()
+        {
+            let s = if v == f64::INFINITY {
+                "inf"
+            } else if v == f64::NEG_INFINITY {
+                "-inf"
+            } else {
+                "NaN"
+            };
+            return Ok(Ok(serializer.serialize_str(s)?));
         }
 
         // Handle<T> → path string or inline #Name
@@ -440,10 +438,10 @@ impl<'a> ReflectSerializerProcessor for JsnSerializerProcessor<'a> {
 
         // Entity → scene-local index
         if type_id == TypeId::of::<Entity>() {
-            if let Some(entity) = value.as_any().downcast_ref::<Entity>() {
-                if let Some(&idx) = self.entity_to_index.get(entity) {
-                    return Ok(Ok(serializer.serialize_u64(idx as u64)?));
-                }
+            if let Some(entity) = value.as_any().downcast_ref::<Entity>()
+                && let Some(&idx) = self.entity_to_index.get(entity)
+            {
+                return Ok(Ok(serializer.serialize_u64(idx as u64)?));
             }
             return Ok(Ok(serializer.serialize_unit()?));
         }
@@ -477,13 +475,13 @@ impl<'a> ReflectDeserializerProcessor for JsnDeserializerProcessor<'a> {
         if registration.type_id() == TypeId::of::<f32>() {
             let val = deserializer
                 .deserialize_any(F32Visitor)
-                .map_err(|e| <D::Error as serde::de::Error>::custom(e))?;
+                .map_err(<D::Error as serde::de::Error>::custom)?;
             return Ok(Ok(Box::new(val).into_partial_reflect()));
         }
         if registration.type_id() == TypeId::of::<f64>() {
             let val = deserializer
                 .deserialize_any(F64Visitor)
-                .map_err(|e| <D::Error as serde::de::Error>::custom(e))?;
+                .map_err(<D::Error as serde::de::Error>::custom)?;
             return Ok(Ok(Box::new(val).into_partial_reflect()));
         }
 
@@ -504,10 +502,10 @@ impl<'a> ReflectDeserializerProcessor for JsnDeserializerProcessor<'a> {
             };
 
             // Null sentinel (from old files with "material": null) → default handle
-            if relative_path.is_empty() {
-                if let Some(reflect_default) = registration.data::<ReflectDefault>() {
-                    return Ok(Ok(reflect_default.default().into_partial_reflect()));
-                }
+            if relative_path.is_empty()
+                && let Some(reflect_default) = registration.data::<ReflectDefault>()
+            {
+                return Ok(Ok(reflect_default.default().into_partial_reflect()));
             }
 
             // Check for catalog asset reference (@Name)
@@ -541,12 +539,9 @@ impl<'a> ReflectDeserializerProcessor for JsnDeserializerProcessor<'a> {
 
         // Entity  -- deserialize from scene-local index
         if registration.type_id() == TypeId::of::<Entity>() {
-            let idx_str = match deserializer.deserialize_u64(&*self) {
-                Ok(s) => s,
-                Err(_) => {
-                    // Not a valid index, return placeholder
-                    return Ok(Ok(Box::new(Entity::PLACEHOLDER).into_partial_reflect()));
-                }
+            let Ok(idx_str) = deserializer.deserialize_u64(&*self) else {
+                // Not a valid index, return placeholder
+                return Ok(Ok(Box::new(Entity::PLACEHOLDER).into_partial_reflect()));
             };
             let idx: usize = idx_str.parse().unwrap_or(usize::MAX);
             let entity = self
@@ -766,11 +761,11 @@ fn collect_handles_from_reflect(
         // emit @Name and don't inline it into the scene's asset table.
         // Skip #-prefixed entries (internal catalog references like #Image8)
         // because those are only meaningful inside the catalog, not in scenes.
-        if let Some(catalog_name) = catalog_id_to_name.get(&untyped_handle.id()) {
-            if catalog_name.starts_with('@') {
-                id_to_name.insert(untyped_handle.id(), catalog_name.clone());
-                return;
-            }
+        if let Some(catalog_name) = catalog_id_to_name.get(&untyped_handle.id())
+            && catalog_name.starts_with('@')
+        {
+            id_to_name.insert(untyped_handle.id(), catalog_name.clone());
+            return;
         }
 
         // External file-backed resource  -- store as a path string entry
@@ -1180,12 +1175,12 @@ fn build_scene_snapshot(
 /// `poll_scene_dialog`) and by `project_select`'s auto-load at
 /// project-open time.
 pub fn load_scene_from_file(world: &mut World, chosen: &std::path::Path) {
-    finish_load_scene(world, chosen)
+    finish_load_scene(world, chosen);
 }
 
 fn finish_load_scene(world: &mut World, chosen: &std::path::Path) {
     let path = chosen.to_string_lossy().to_string();
-    let last_dir = chosen.parent().map(|p| p.to_path_buf());
+    let last_dir = chosen.parent().map(std::path::Path::to_path_buf);
 
     // Update last directory
     world.resource_mut::<SceneFilePath>().last_directory = last_dir;
@@ -1274,7 +1269,7 @@ fn finish_load_scene(world: &mut World, chosen: &std::path::Path) {
 
 /// Deserialize inline assets from the generic assets table.
 /// Returns a map of `#Name` / `@Name` → `UntypedHandle` for the deserializer processor.
-/// Scan material definitions in JsnAssets to find image names used in non-color slots.
+/// Scan material definitions in `JsnAssets` to find image names used in non-color slots.
 /// These images must be loaded with `is_srgb = false` to avoid gamma decoding artifacts.
 fn collect_linear_image_names(assets: &JsnAssets) -> HashSet<String> {
     const LINEAR_SLOTS: &[&str] = &[
@@ -1435,10 +1430,10 @@ pub fn load_scene_from_jsn(
 
     // Second pass: set parents (ChildOf)
     for (i, jsn) in entities.iter().enumerate() {
-        if let Some(parent_idx) = jsn.parent {
-            if let Some(&parent_entity) = spawned.get(parent_idx) {
-                world.entity_mut(spawned[i]).insert(ChildOf(parent_entity));
-            }
+        if let Some(parent_idx) = jsn.parent
+            && let Some(&parent_entity) = spawned.get(parent_idx)
+        {
+            world.entity_mut(spawned[i]).insert(ChildOf(parent_entity));
         }
     }
 
@@ -1907,7 +1902,7 @@ fn poll_scene_dialog(world: &mut World) {
             if let Some(file) = result {
                 let path = file.path().to_path_buf();
                 let path_str = path.to_string_lossy().to_string();
-                let last_dir = path.parent().map(|p| p.to_path_buf());
+                let last_dir = path.parent().map(std::path::Path::to_path_buf);
 
                 let mut scene_path = world.resource_mut::<SceneFilePath>();
                 scene_path.path = Some(path_str);
@@ -1949,7 +1944,7 @@ fn handle_scene_io_keys(world: &mut World) {
     }
 }
 
-/// Register a single ECS entity in the SceneJsnAst by serializing all its
+/// Register a single ECS entity in the `SceneJsnAst` by serializing all its
 /// scene-relevant components into JSON. Skips entities already in the AST.
 /// Serializer processor for AST registration: resolves `Handle<T>` to path
 /// strings and `Entity` to null (no scene-local index available at
@@ -1992,19 +1987,18 @@ impl ReflectSerializerProcessor for AstSerializerProcessor {
         }
 
         // Non-finite floats
-        if type_id == TypeId::of::<f32>() {
-            if let Some(&v) = value.as_any().downcast_ref::<f32>() {
-                if !v.is_finite() {
-                    let s = if v == f32::INFINITY {
-                        "inf"
-                    } else if v == f32::NEG_INFINITY {
-                        "-inf"
-                    } else {
-                        "NaN"
-                    };
-                    return Ok(Ok(serializer.serialize_str(s)?));
-                }
-            }
+        if type_id == TypeId::of::<f32>()
+            && let Some(&v) = value.as_any().downcast_ref::<f32>()
+            && !v.is_finite()
+        {
+            let s = if v == f32::INFINITY {
+                "inf"
+            } else if v == f32::NEG_INFINITY {
+                "-inf"
+            } else {
+                "NaN"
+            };
+            return Ok(Ok(serializer.serialize_str(s)?));
         }
 
         Ok(Err(serializer))
@@ -2016,7 +2010,7 @@ pub fn register_entity_in_ast(world: &mut World, entity: Entity) {
     if ast.contains_entity(entity) {
         return;
     }
-    let parent = world.get::<ChildOf>(entity).map(|c| c.parent());
+    let parent = world.get::<ChildOf>(entity).map(ChildOf::parent);
     let idx = world
         .resource_mut::<jackdaw_jsn::SceneJsnAst>()
         .create_node(entity, parent);

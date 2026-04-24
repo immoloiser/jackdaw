@@ -21,23 +21,22 @@ pub(super) fn draw_brush_edit_gizmos(
     mut gizmos: Gizmos<BrushOutlineSelectedGizmoGroup>,
 ) {
     // Draw hover face outline (works in both Object and Edit modes)
-    if let (Some(hover_entity), Some(hover_face)) = (hover.entity, hover.face_index) {
-        if let Ok(cache) = brush_caches.get(hover_entity) {
-            if let Ok(brush_global) = brush_transforms.get(hover_entity) {
-                let polygon = &cache.face_polygons[hover_face];
-                if polygon.len() >= 3 {
-                    // Skip if face is already selected (avoid double highlight)
-                    let is_selected = brush_selection.faces.contains(&hover_face)
-                        && brush_selection.entity == Some(hover_entity);
-                    if !is_selected {
-                        let color = default_style::EDIT_AVAILABLE_COLOR;
-                        for i in 0..polygon.len() {
-                            let a = brush_global.transform_point(cache.vertices[polygon[i]]);
-                            let b = brush_global
-                                .transform_point(cache.vertices[polygon[(i + 1) % polygon.len()]]);
-                            gizmos.line(a, b, color);
-                        }
-                    }
+    if let (Some(hover_entity), Some(hover_face)) = (hover.entity, hover.face_index)
+        && let Ok(cache) = brush_caches.get(hover_entity)
+        && let Ok(brush_global) = brush_transforms.get(hover_entity)
+    {
+        let polygon = &cache.face_polygons[hover_face];
+        if polygon.len() >= 3 {
+            // Skip if face is already selected (avoid double highlight)
+            let is_selected = brush_selection.faces.contains(&hover_face)
+                && brush_selection.entity == Some(hover_entity);
+            if !is_selected {
+                let color = default_style::EDIT_AVAILABLE_COLOR;
+                for i in 0..polygon.len() {
+                    let a = brush_global.transform_point(cache.vertices[polygon[i]]);
+                    let b = brush_global
+                        .transform_point(cache.vertices[polygon[(i + 1) % polygon.len()]]);
+                    gizmos.line(a, b, color);
                 }
             }
         }
@@ -171,22 +170,22 @@ pub(super) fn draw_brush_edit_gizmos(
     } else {
         None
     };
-    if let Some(constraint) = active_constraint {
-        if constraint != VertexDragConstraint::Free {
-            let (axis_dir, color) = match constraint {
-                VertexDragConstraint::AxisX => (Vec3::X, default_style::AXIS_X),
-                VertexDragConstraint::AxisY => (Vec3::Y, default_style::AXIS_Y),
-                VertexDragConstraint::AxisZ => (Vec3::Z, default_style::AXIS_Z),
-                VertexDragConstraint::Free => unreachable!(),
-            };
-            let (_, brush_rot, _) = brush_global.to_scale_rotation_translation();
-            let world_axis = brush_rot * axis_dir;
-            let center = brush_global.translation();
-            gizmos.line(
-                center - world_axis * 50.0,
-                center + world_axis * 50.0,
-                color,
-            );
-        }
+    if let Some(constraint) = active_constraint
+        && constraint != VertexDragConstraint::Free
+    {
+        let (axis_dir, color) = match constraint {
+            VertexDragConstraint::AxisX => (Vec3::X, default_style::AXIS_X),
+            VertexDragConstraint::AxisY => (Vec3::Y, default_style::AXIS_Y),
+            VertexDragConstraint::AxisZ => (Vec3::Z, default_style::AXIS_Z),
+            VertexDragConstraint::Free => unreachable!(),
+        };
+        let (_, brush_rot, _) = brush_global.to_scale_rotation_translation();
+        let world_axis = brush_rot * axis_dir;
+        let center = brush_global.translation();
+        gizmos.line(
+            center - world_axis * 50.0,
+            center + world_axis * 50.0,
+            color,
+        );
     }
 }

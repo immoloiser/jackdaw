@@ -134,7 +134,7 @@ fn format_bindings(bindings: &[Keybind]) -> String {
     }
     bindings
         .iter()
-        .map(|b| b.to_string())
+        .map(std::string::ToString::to_string)
         .collect::<Vec<_>>()
         .join(" / ")
 }
@@ -593,20 +593,20 @@ fn apply_rebind(
     texts: &mut Query<(&KeybindDisplayText, &mut Text, &mut TextColor)>,
 ) {
     // Remove the conflicting binding from the other action
-    if let Some(conflicting_action) = conflict {
-        if let Some(bindings) = pending.get_mut(&conflicting_action) {
-            bindings.retain(|b| b != &new_bind);
-            let text_str = format_bindings(bindings);
-            let text_color = if bindings.is_empty() {
-                tokens::TEXT_SECONDARY
-            } else {
-                tokens::TEXT_PRIMARY
-            };
-            for (display, mut text, mut color) in texts.iter_mut() {
-                if display.0 == conflicting_action {
-                    text.0 = text_str.clone();
-                    color.0 = text_color;
-                }
+    if let Some(conflicting_action) = conflict
+        && let Some(bindings) = pending.get_mut(&conflicting_action)
+    {
+        bindings.retain(|b| b != &new_bind);
+        let text_str = format_bindings(bindings);
+        let text_color = if bindings.is_empty() {
+            tokens::TEXT_SECONDARY
+        } else {
+            tokens::TEXT_PRIMARY
+        };
+        for (display, mut text, mut color) in texts.iter_mut() {
+            if display.0 == conflicting_action {
+                text.0 = text_str.clone();
+                color.0 = text_color;
             }
         }
     }
